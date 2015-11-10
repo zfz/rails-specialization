@@ -33,7 +33,7 @@ Rails.application.routes.draw do
   #     resource :seller
   #   end
   resources :todo_lists do
-    resource :todo_item, only: [:new, :create, :destroy]
+    resources :todo_items
   end
 
   # Example resource route with more complex sub-resources:

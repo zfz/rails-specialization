@@ -1,5 +1,6 @@
 class TodoItemsController < ApplicationController
-  before_action :set_todo_list, only: [:new, :show, :edit, :update, :destroy]
+  before_action :set_todo_list 
+  before_action :set_todo_item, only: [:show, :edit, :update, :destroy]  
 
   # GET /todo_items
   # GET /todo_items.json
@@ -54,7 +55,6 @@ class TodoItemsController < ApplicationController
   # DELETE /todo_items/1
   # DELETE /todo_items/1.json
   def destroy
-    @todo_item = @todo_list.todo_item.find_by(params[:id])
     @todo_item.destroy
     respond_to do |format|
       format.html { redirect_to @todo_list, notice: 'Todo item was successfully destroyed.' }
@@ -65,7 +65,7 @@ class TodoItemsController < ApplicationController
   private
     # Use callbacks to share common setup or constraints between actions.
     def set_todo_item
-      @todo_item = TodoList.find(params[:todo_list_id]).find(params[:id])
+      @todo_item = @todo_list.todo_items.find(params[:id])
     end
 
     def set_todo_list
