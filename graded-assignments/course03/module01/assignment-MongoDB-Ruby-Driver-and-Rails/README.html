@@ -1,0 +1,537 @@
+<h1 id="module-1-summative-assignment-integrating-mongodb-ruby-driver-and-rails">Module 1, Summative Assignment: Integrating MongoDB Ruby Driver and Rails</h1>
+<p>This assignment focuses on your ability to implement MongoDB Ruby Driver commands within the context of a Rails application and scaffold. To do this -- you will implement an ActiceModel model class using MongoDB that should nearly immediately work with a generated controller and view. This will not only test your knowledge of the specific MongoDB Ruby Driver commands but will also give you insight into the functionality provided by the Mongoid ORM you will use later in the course and how you can drop down to the raw MongoDB Driver API if the need ever arises in a full application. You will be given much of the Rails portion of the assignment in detailed hints. You must fill in the missing MongoDB Ruby Driver portions based on the lectures and other course materials.</p>
+<p>The overall goal of the assignment is to:</p>
+<ul>
+<li>Integrate MongoDB into a Rails application using the MongoDB Ruby Driver</li>
+<li>Manually implement CRUD methods required of a Rails model class to work with Rails scaffold</li>
+<li>Add manual model support for <code>will_paginate</code> pagination of data</li>
+</ul>
+<p>The functional goal of the assignment is to:</p>
+<ul>
+<li>Implement a web application to access racers</li>
+</ul>
+<h2 id="functional-requirements">Functional Requirements</h2>
+<ol style="list-style-type: decimal">
+<li>Add a connection from Rails to the MongoDB server using Mongoid. You will:</li>
+</ol>
+<ul>
+<li>include the necessary gems</li>
+<li>configure server connection and database</li>
+</ul>
+<ol start="2" style="list-style-type: decimal">
+<li>Manage Racers in the MongoDB <code>racers</code> collection and use a a class called Racer to encapsulate access to MongoDB and the <code>racers</code> collection.</li>
+</ol>
+<ul>
+<li>get a connection to the MongoDB server and default database</li>
+<li>get the collection for our model type</li>
+<li>ingest data into the collection</li>
+</ul>
+<ol start="3" style="list-style-type: decimal">
+<li>Use the <code>Racer</code> class as a Rails model class to encapsulate the properties tracked for a racer within MongoDB.</li>
+</ol>
+<ul>
+<li>id - primary key within the database</li>
+<li>number - their race bib number</li>
+<li>first_name - given name</li>
+<li>last_name - surname</li>
+<li>gender - &quot;M&quot;, &quot;F&quot;, or nil</li>
+<li>group - age group running in</li>
+<li>secs - race completion time in secs</li>
+</ul>
+<p>This will include the following model commands</p>
+<ul>
+<li>all - find all racers in the database collection</li>
+<li>find - find a specific racer by ID in the database collection</li>
+<li>save - save the current instance</li>
+<li>update - update the properties of the curren instance to the database collection</li>
+<li>destroy - remove the racer from the database collection</li>
+</ul>
+<ol start="4" style="list-style-type: decimal">
+<li><p>Create a scaffold for the <code>Racer</code> model class to view and modify racer information in the database collection.</p></li>
+<li><p>Add pagination support to the <code>Racer</code> index page.</p></li>
+</ol>
+<h2 id="getting-started">Getting Started</h2>
+<ol style="list-style-type: decimal">
+<li><p>Create a new Rails application called <code>raceday</code>.</p></li>
+<li><p>Download and extract the starter set of boostrap files for this assignment.</p>
+<pre class="shell"><code>|-- Gemfile
+|-- race_results.json
+`-- spec
+    |-- start_spec.rb
+    |-- mongoid_spec.rb
+    |-- connection_spec.rb
+    |-- crud._specrb
+    |-- model_spec.rb
+    |-- scaffold_spec.rb
+    `-- paginate_spec.rb</code></pre>
+<ul>
+<li><p>Overwrite your existing Gemfile with the Gemfile from the bootstrap fileset. They should be nearly identical, but this is done to make sure the gems and versions you use in your solution can be processed by the automated Grader when you submit. Any submission should be tested with this version of the file.</p>
+<p>NOTE the Gemfile includes the following added to support testing:</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">group <span class="st">:test</span> <span class="kw">do</span>
+    gem <span class="st">&#39;rspec-rails&#39;</span>, <span class="st">&#39;~&gt; 3.0&#39;</span>
+    gem <span class="st">&#39;capybara&#39;</span>
+<span class="kw">end</span></code></pre>
+<p>as well as a new definition for the following items:</p>
+<ul>
+<li><code>tzinfo-data</code> gem conditionally included on Windows platforms</li>
+<li><code>mongoid</code> gem added to support getting connections to MongoDB server</li>
+<li><p><code>will_paginate</code> added for implementing paging</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby"><span class="co"># Windows does not include zoneinfo files, so bundle the tzinfo-data gem</span>
+gem <span class="st">&#39;tzinfo-data&#39;</span>, platforms: [<span class="st">:mingw</span>, <span class="st">:mswin</span>, <span class="st">:x64_mingw</span>, <span class="st">:jruby</span>]
+gem <span class="st">&#39;mongoid&#39;</span>, <span class="st">&#39;~&gt; 5.0.0&#39;</span>
+gem <span class="st">&#39;will_paginate&#39;</span>, <span class="st">&#39;~&gt; 3.0.6&#39;</span></code></pre></li>
+</ul></li>
+<li><p>Add the <code>spec/*.rb</code> files provided with the bootstrap fileset to the corresponding <code>spec/</code> directory within your <code>raceday</code> application. These files contain tests that will help determine whether you have completed the assignment.</p></li>
+</ul></li>
+<li><p>Run the <code>bundle</code> command to make sure all gems are available.</p>
+<pre class="shell"><code>$ bundle</code></pre></li>
+<li><p>Run the rspec test(s) to receive feedback. <code>rspec</code> must be run from the root directory of your application. There are several test files provided for this assignment. Many of those files are designed to test your code at specific points as you proceed through the technical requirements of this assignment. As such, many tests will fail if executed after additional technical requirements have been completed. Initially, majority of tests will (obviously) fail until you complete the requirements necessary for them to pass.</p>
+<pre class="shell"><code>$ rspec 
+...
+(N) examples, 1 failure, (N) pending</code></pre>
+<p>To focus test feedback on a specific step of the requirements, add the specific file (path included) with the tests along with &quot;-e rq##&quot; to the rspec command line to only evaluate a specific requirement. Pad all step numbers to two digits.</p>
+<pre class="shell"><code>$ rspec -e spec/connection_spec.rb -rq01
+...
+(N) example, 0 failures</code></pre></li>
+<li><p>Start your MongoDB <code>mongod</code> process.</p></li>
+<li><p>Implement your solution to the technical requirements and use the rspec tests to help verify your completed solution.</p></li>
+<li><p>Submit your Rails app solution for grading.</p></li>
+</ol>
+<h2 id="technical-requirements">Technical Requirements</h2>
+<h3 id="mongoid-database-connection">Mongoid Database Connection</h3>
+<p>In this section you will complete the installation of Mongoid into your application by generating a configuration file and wiring that configuration file into the Rails application so you can get connections to MongoDB. We will only use Mongoid for connections at this point. All commands to MongoDB will be through the MongoDB Ruby Driver.</p>
+<ol style="list-style-type: decimal">
+<li><p>Start with the <code>raceday</code> application created in the <code>Getting Started</code> section.</p></li>
+<li><p>Generate a Mongoid configuration file and update to reference the same MongoDB server instance and database as in the previous assignment.</p>
+<pre class="shell"><code>$ rails g mongoid:config</code></pre>
+<p>The generated defaults should be correct for what we will use. They may be different from what you used in a previous assignment, but we are purposely going to keep them in a separate database from what was used in the other assignment.</p>
+<pre class="shell"><code>$ cat config/mongoid.yml | egrep -v &#39;^$|#&#39;
+development:
+  clients:
+    default:
+      database: raceday_development
+      hosts:
+        - localhost:27017
+  ...
+test:
+  clients:
+    default:
+      database: raceday_test
+      hosts:
+        - localhost:27017
+  ...</code></pre></li>
+<li><p>Add some Mongoid configuration to <code>config/application.rb</code>. This is used by stand-alone programs like &quot;rails console&quot; to be able to load the Mongoid environment with fewer steps. This also configures which ORM your scaffold commands use by default. Adding the mongoid gem had the impact of making Mongoid the default ORM. The lines below show how we can set it back to ether ActiveRecord or Mongoid and how to use the <code>--orm</code> flag to identify the mapping on a per-model type basis. However, we will not be generating any ActiveRecord or Mongoid model classes as a part of this assignment. We will only be using Mongoid during this assignment to get connections to MongoDB and we might as well show a complete configuration while we are here.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby"><span class="kw">module</span> <span class="dt">Raceday</span>
+  <span class="kw">class</span> <span class="dt">Application</span> &lt; <span class="dt">Rails</span>::<span class="dt">Application</span>
+  ...
+    <span class="co">#bootstraps mongoid within applications -- like rails console</span>
+    <span class="dt">Mongoid</span>.load!(<span class="st">&#39;./config/mongoid.yml&#39;</span>)
+
+    <span class="co">#which default ORM are we using with scaffold</span>
+    <span class="co">#add  --orm mongoid, or active_record </span>
+    <span class="co">#    to rails generate cmd line to be specific</span>
+    <span class="co">#config.generators {|g| g.orm :active_record}</span>
+    config.generators {|g| g.orm <span class="st">:mongoid</span>}
+  ...</code></pre></li>
+<li><p>Start the web server.</p>
+<pre class="shell"><code>$ rails s</code></pre>
+<pre class="shell"><code>$ rspec spec/mongoid_spec.rb</code></pre></li>
+</ol>
+<h3 id="obtain-database-connection-from-model-class">Obtain Database Connection from Model Class</h3>
+<p>In this section you create a model class and add some convenience methods to get a connection to the MongoDB server and document collection.</p>
+<ol style="list-style-type: decimal">
+<li>Create a model class by hand called <code>Racer</code> in the <code>app/models</code> directory. This class must have:
+<ul>
+<li>a class method called <code>mongo_client</code> that returns a MongoDB client configured to communicate to the default database specified in the <code>config/mongoid.yml</code> file.</li>
+<li>a class method called <code>collection</code> that returns the <code>racers</code> MongoDB collection holding the <code>Racer</code> documents.</li>
+</ul>
+<p>Hint:</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">$ rails c
+&gt; <span class="dt">Mongoid</span>::<span class="dt">Clients</span>.default                                                                                                                                                         
+ =&gt; <span class="co">#&lt;Mongo::Client:0x46050120 cluster=localhost:27017&gt;</span></code></pre>
+<p>Use the <code>rails console</code> to demonstrate your new methods.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; <span class="dt">Racer</span>.mongo_client.database.name
+ =&gt; <span class="st">&quot;raceday_development&quot;</span> 
+&gt; <span class="dt">Racer</span>.collection.name
+ =&gt; <span class="st">&quot;racers&quot;</span> </code></pre>
+<pre class="shell"><code>$ rspec -e spec/connection_spec.rb -rq01</code></pre></li>
+<li><p>Use the <code>rails console</code> and the <code>Racer</code> class and methods added above to ingest data into the collection. The <code>; nil</code> is shown below is to keep the default logger level of the rails console from printing the evaluation of the large collection results after each command.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">$ rails c
+&gt; file_path=<span class="st">&quot;./race_results.json&quot;</span>
+&gt; file=<span class="dt">File</span>.read(file_path); <span class="dv">nil</span>
+&gt; hash=<span class="dt">JSON</span>.parse(file); <span class="dv">nil</span>
+&gt; racers=<span class="dt">Racer</span>.collection
+&gt; racers.insert_many(hash); <span class="dv">nil</span></code></pre>
+<p>You should end up with 1000 racers in your collection.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; <span class="dt">Racer</span>.collection.count
+ =&gt; <span class="dv">1000</span> </code></pre>
+<pre class="shell"><code>$ rspec -e spec/connection_spec.rb -rq02</code></pre></li>
+</ol>
+<h3 id="crud-model-methods">CRUD Model Methods</h3>
+<p>In this section you will apply your knowledge of MongoDB Ruby Driver commands to implement CRUD methods required by the Rails scaffold. We don't need the scaffold yet -- we can implement and test quite a lot with the &quot;rails console&quot; and unit tests.</p>
+<ol style="list-style-type: decimal">
+<li>Create a class method in the <code>Racer</code> class called <code>all</code>. This method must:
+<ul>
+<li>accept an optional prototype, optional sort, optional skip, and optional limit. The default for the prototype is to &quot;match all&quot; -- which means you must provide it a document that matches all records. The default for sort must be by number ascending. The default for skip must be 0 and the default for limit must be nil.</li>
+<li>find all racers that match the given prototype</li>
+<li>sort them by the given hash criteria</li>
+<li>skip the specified number of documents</li>
+<li>limit the number of documents returned if limit is specified</li>
+<li>return the result</li>
+</ul>
+<p>Hint:</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby"><span class="kw">def</span> <span class="dv">self</span>.all(prototype={...}, sort={...}, skip=<span class="dv">0</span>, limit=<span class="dv">nil</span>) 
+  ...
+<span class="kw">end</span></code></pre>
+<p>Use the Rails console to verify and explore your result. Use the <code>reload!</code> command after making code changes.</p>
+<p>The following command shows there are 1000 records in the database.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; reload!
+&gt; pp <span class="dt">Racer</span>.all.count; <span class="dv">nil</span>
+<span class="dv">1000</span></code></pre>
+<p>The following command shows that the parameters to the <code>all</code> method are optional.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; pp <span class="dt">Racer</span>.all.first; <span class="dv">nil</span>
+{<span class="st">&quot;_id&quot;</span>=&gt;<span class="dt">BSON</span>::<span class="dt">ObjectId</span>(<span class="st">&#39;563daabbe301d0978b000000&#39;</span>),
+ <span class="st">&quot;number&quot;</span>=&gt;<span class="dv">0</span>,
+ <span class="st">&quot;first_name&quot;</span>=&gt;<span class="st">&quot;SHAUN&quot;</span>,
+ <span class="st">&quot;last_name&quot;</span>=&gt;<span class="st">&quot;JOHNSON&quot;</span>,
+ <span class="st">&quot;gender&quot;</span>=&gt;<span class="st">&quot;M&quot;</span>,
+ <span class="st">&quot;group&quot;</span>=&gt;<span class="st">&quot;15 to 19&quot;</span>,
+ <span class="st">&quot;secs&quot;</span>=&gt;<span class="dv">1464</span>}</code></pre>
+<p>The following command shows we have the power to find matching documents thru a prototype and control the sorting and paging.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; pp <span class="dt">Racer</span>.all({group:<span class="st">&quot;50 to 59&quot;</span>, gender:<span class="st">&quot;F&quot;</span>}, {last_name:-<span class="dv">1</span>},<span class="dv">0</span>,<span class="dv">1</span>).to_a; <span class="dv">nil</span>
+[{<span class="st">&quot;_id&quot;</span>=&gt;<span class="dt">BSON</span>::<span class="dt">ObjectId</span>(<span class="st">&#39;563daabbe301d0978b0000a6&#39;</span>),
+  <span class="st">&quot;number&quot;</span>=&gt;<span class="dv">166</span>,
+  <span class="st">&quot;first_name&quot;</span>=&gt;<span class="st">&quot;MONA&quot;</span>,
+  <span class="st">&quot;last_name&quot;</span>=&gt;<span class="st">&quot;WATSON&quot;</span>,
+  <span class="st">&quot;gender&quot;</span>=&gt;<span class="st">&quot;F&quot;</span>,
+  <span class="st">&quot;group&quot;</span>=&gt;<span class="st">&quot;50 to 59&quot;</span>,
+  <span class="st">&quot;secs&quot;</span>=&gt;<span class="dv">2321</span>}]</code></pre>
+<pre class="shell"><code>$ rspec -e spec/crud_spec.rb -rq01</code></pre></li>
+<li>Add attributes to the <code>Racer</code> class that allow one to set/get each of the following properties:
+<ul>
+<li>id</li>
+<li>number</li>
+<li>first_name</li>
+<li>last_name</li>
+<li>gender</li>
+<li>group</li>
+<li>secs</li>
+</ul>
+<p>Hint:</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby"><span class="kw">class</span> <span class="dt">Racer</span>
+  <span class="ot">attr_accessor</span> <span class="st">:id</span>, <span class="st">:number</span>, <span class="st">:first_name</span>, <span class="st">:last_name</span>, <span class="st">:gender</span>, <span class="st">:group</span>, <span class="st">:secs</span></code></pre>
+<p>Note that <code>id</code> is a special primary key property within ActiveModel and must exist to work correctly with Rails scaffold. We will map that property to the string value of the MongoDB <code>_id</code> property. The <code>_id</code> properties ingested are in <code>BSON::ObjectId</code> form and can be converted to/from string using:</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby"><span class="ot">@id</span>=doc[<span class="st">:_id</span>].to_s
+<span class="st">:_id=</span>&gt;<span class="dt">BSON</span>::<span class="dt">ObjectId</span>.from_string(<span class="ot">@id</span>))</code></pre>
+<p>Note that the BSON::ObjectId is a globally unique value and has a <a href="https://docs.mongodb.org/manual/reference/object-id/">specific format and length</a>. The <code>from_string</code> method will throw an exception if passed a string with an incorrect format/length. If we wanted to use an arbitrary, unique value -- we would not use the BSON::ObjectId type for our MongoDB primary key.</p>
+<pre class="shell"><code>$ rspec -e spec/crud_spec.rb -rq02</code></pre></li>
+<li>Add an initializer that can set the properties of the class using the keys from a <code>racers</code> document. It must:
+<ul>
+<li>accept a hash of properties</li>
+<li>assign instance attributes to the values from the hash</li>
+<li>for the <code>id</code> property, this method must test whether the hash is coming from a web page <code>[:id]</code> or from a MongoDB query <code>[:_id]</code> and assign the value to whichever is non-nil.</li>
+</ul>
+<p>Hint:</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby"><span class="kw">def</span> initialize(params={}) 
+  <span class="ot">@id</span>=params[<span class="st">:_id</span>].nil? ? params[<span class="st">:id</span>] : params[<span class="st">:_id</span>].to_s
+  <span class="ot">@number</span>=params[<span class="st">:number</span>].to_i
+  <span class="ot">@first_name</span>=params[<span class="st">:first_name</span>]
+  <span class="ot">@last_name</span>=params[<span class="st">:last_name</span>]
+  <span class="ot">@gender</span>=params[<span class="st">:gender</span>]
+  <span class="ot">@group</span>=params[<span class="st">:group</span>]
+  <span class="ot">@secs</span>=params[<span class="st">:secs</span>].to_i
+<span class="kw">end</span></code></pre>
+<pre class="shell"><code>$ rspec -e spec/crud_spec.rb -rq03</code></pre></li>
+<li>Create a class method in the <code>Racer</code> class called <code>find</code>. This method must:
+<ul>
+<li>accept a single <code>id</code> parameter</li>
+<li>find the specific document with that <code>_id</code></li>
+<li>return the <code>racer</code> document represented by that <code>id</code></li>
+</ul>
+<p>Hint:</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby"><span class="kw">def</span> <span class="dv">self</span>.find id
+  result=collection...
+  <span class="kw">return</span> result.nil? ? <span class="dv">nil</span> : <span class="dt">Racer</span>.new(result)
+<span class="kw">end</span></code></pre>
+<p>Use the <code>rails console</code> to test and explore your changes. Note that return type is now an instance of a <code>Racer</code> class or nil if not found. The last example has a valid BSON string but an unknown value.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; reload!
+&gt; <span class="dt">Racer</span>.all.projection(first_name:<span class="dv">1</span>, last_name:<span class="dv">1</span>).first
+ =&gt; {<span class="st">&quot;_id&quot;</span>=&gt;<span class="dt">BSON</span>::<span class="dt">ObjectId</span>(<span class="st">&#39;563daabbe301d0978b000000&#39;</span>), <span class="st">&quot;first_name&quot;</span>=&gt;<span class="st">&quot;SHAUN&quot;</span>, <span class="st">&quot;last_name&quot;</span>=&gt;<span class="st">&quot;JOHNSON&quot;</span>} 
+&gt; <span class="dt">Racer</span>.find <span class="st">&quot;563daabbe301d0978b000000&quot;</span>
+ =&gt; <span class="co">#&lt;Racer:0x000000072c0680 @id=&quot;563daabbe301d0978b000000&quot;, @number=0, @first_name=&quot;SHAUN&quot;, @last_name=&quot;JOHNSON&quot;, ...</span>
+&gt; <span class="dt">Racer</span>.find <span class="st">&quot;563daabbe301d0978b000999&quot;</span>
+ =&gt; <span class="dv">nil</span> </code></pre>
+<pre class="shell"><code>$ rspec -e spec/crud_spec.rb -rq04</code></pre></li>
+<li>Create an instance method in the <code>Racer</code> class called <code>save</code>. This method must:
+<ul>
+<li>take no arguments</li>
+<li>insert the current state of the <code>Racer</code> instance into the database</li>
+<li>obtain the inserted document <code>_id</code> from the result and assign the to_s value of the <code>_id</code> to the instance attribute <code>@id</code></li>
+</ul>
+<p>Hint:</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby"><span class="kw">def</span> save
+  result=<span class="dv">self</span>.class.collection....
+  <span class="ot">@id</span>=result... <span class="co">#store just the string form of the _id</span>
+<span class="kw">end</span></code></pre>
+<p>Use the <code>rails console</code> to test and explore your changes.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; racer=<span class="dt">Racer</span>.new(number:<span class="dv">1001</span>, first_name:<span class="st">&quot;cat&quot;</span>, last_name:<span class="st">&quot;inhat&quot;</span>, group:<span class="st">&quot;masters&quot;</span>, secs:<span class="dv">1000</span>)
+ =&gt; <span class="co">#&lt;Racer:0x00000007305a78 @id=nil, @number=1001, @first_name=&quot;cat&quot;, @last_name=&quot;inhat&quot;, @gender=nil, @group=&quot;masters&quot;, @secs=1000&gt; </span>
+&gt; racer.save
+ =&gt; <span class="st">&quot;563e24c2e301d0978b0003ea&quot;</span> 
+&gt; <span class="dt">Racer</span>.find <span class="st">&quot;563e24c2e301d0978b0003ea&quot;</span>
+ =&gt; <span class="co">#&lt;Racer:0x0000000731ab08 @id=&quot;563e24c2e301d0978b0003ea&quot;, @number=1001, @first_name=&quot;cat&quot;, @last_name=&quot;inhat&quot;, @gender=nil, @group=&quot;masters&quot;, @secs=1000&gt; </span></code></pre>
+<pre class="shell"><code>$ rspec -e spec/crud_spec.rb -rq05</code></pre></li>
+<li>Create an instance method in the <code>Racer</code> class called <code>update</code>. This method must:
+<ul>
+<li>accept a hash as an input parameter</li>
+<li>updates the state of the instance variables -- except for <span class="citation">@id</span>. That never should change.</li>
+<li>find the racer associated with the current <code>@id</code> instance variable in the database</li>
+<li>update the racer with the supplied values -- replacing all values</li>
+</ul>
+<p>Hint:</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby"><span class="kw">def</span> update(params) 
+  <span class="ot">@number</span>=params[<span class="st">:number</span>].to_i
+  <span class="ot">@first_name</span>=params[<span class="st">:first_name</span>] 
+  <span class="ot">@last_name</span>=params[<span class="st">:last_name</span>]  
+  <span class="ot">@secs</span>=params[<span class="st">:secs</span>].to_i
+            ...
+  params.slice!(<span class="st">:number</span>, <span class="st">:first_name</span>, <span class="st">:last_name</span>, <span class="st">:gender</span>, <span class="st">:group</span>, <span class="st">:secs</span>)
+  <span class="dv">self</span>.class.collection
+            ...
+<span class="kw">end</span></code></pre>
+<p>Use the <code>rails console</code> to test and explore your changes.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; doc=<span class="dt">Racer</span>.all({first_name:<span class="st">&quot;cat&quot;</span>,last_name:<span class="st">&quot;inhat&quot;</span>}).first
+&gt; racer=<span class="dt">Racer</span>.find doc[<span class="st">:_id</span>].to_s
+&gt; racer.first_name
+ =&gt; <span class="st">&quot;cat&quot;</span> 
+&gt; racer.update(first_name:<span class="st">&quot;thing&quot;</span>, last_name:<span class="st">&quot;one&quot;</span>, group:<span class="st">&quot;15 to 19&quot;</span>)
+&gt; pp <span class="dt">Racer</span>.all(<span class="st">:_id=</span>&gt;doc[<span class="st">:_id</span>]).first
+{<span class="st">&quot;_id&quot;</span>=&gt;<span class="dt">BSON</span>::<span class="dt">ObjectId</span>(<span class="st">&#39;5663d512e301d0a256000fa3&#39;</span>),
+ <span class="st">&quot;first_name&quot;</span>=&gt;<span class="st">&quot;thing&quot;</span>,
+ <span class="st">&quot;last_name&quot;</span>=&gt;<span class="st">&quot;one&quot;</span>,
+ <span class="st">&quot;group&quot;</span>=&gt;<span class="st">&quot;15 to 19&quot;</span>}</code></pre>
+<pre class="shell"><code>$ rspec -e spec/crud_spec.rb -rq06</code></pre></li>
+<li>Create an instance method in the <code>Racer</code> class called <code>destroy</code>. This method must:
+<ul>
+<li>accept no arguments</li>
+<li>find the racer associated with the current <code>@number</code> instance variable in the database</li>
+<li>remove that instance from the database</li>
+</ul>
+<p>Hint:</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby"><span class="kw">def</span> destroy
+  <span class="dv">self</span>.class.collection
+            ....
+<span class="kw">end</span></code></pre>
+<p>Use the <code>rails console</code> to test and explore your changes.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; <span class="dt">Racer</span>.find(<span class="dv">1001</span>).first_name
+ =&gt; <span class="st">&quot;thing&quot;</span> 
+&gt; <span class="dt">Racer</span>.find(<span class="dv">1001</span>).destroy
+ =&gt; <span class="co">#&lt;Mongo::Operation::Result:57331320 documents=[{&quot;ok&quot;=&gt;1, &quot;n&quot;=&gt;1}]&gt; </span>
+&gt; <span class="dt">Racer</span>.find(<span class="dv">1001</span>)
+ =&gt; <span class="dv">nil</span> </code></pre>
+<pre class="shell"><code>$ rspec -e spec/crud_spec.rb -rq07</code></pre></li>
+</ol>
+<h3 id="completing-activemodel-framework">Completing ActiveModel Framework</h3>
+<p>In this section we will transform the <code>Racer</code> class into a <code>Racer</code> model class by adding a few constructs to make the class look like an ActiveModel instance used by the Rails scaffold.</p>
+<ol style="list-style-type: decimal">
+<li><p>Add the <code>ActiveModel::Model</code> mixin to the <code>Racer</code> class.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby"><span class="kw">class</span> <span class="dt">Racer</span>
+  include <span class="dt">ActiveModel</span>::<span class="dt">Model</span></code></pre>
+<pre class="shell"><code>$ rspec -e spec/model_spec.rb -rq01</code></pre></li>
+<li>Add an instance method to the <code>Racer</code> class called <code>persisted?</code>. This method must:
+<ul>
+<li>accept no arguments</li>
+<li>return true when <span class="citation">@id</span> is not <code>nil</code>. Remember -- we assigned <span class="citation">@id</span> during save when we obtained the generated primary key.</li>
+</ul>
+<p>Hint:</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby"><span class="kw">def</span> persisted?
+  !<span class="ot">@id</span>.nil?
+<span class="kw">end</span></code></pre>
+<p>Use the <code>rails console</code> to test and explore your changes. Remember that most of the methods we added return MongoDB hashes and <code>persisted?</code> is an instance method of <code>Racer</code>. You can only call this method on objects of type <code>Racer</code>.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; id=<span class="dt">Racer</span>.all({first_name:<span class="st">&quot;thing&quot;</span>, last_name:<span class="st">&quot;one&quot;</span>}).first[<span class="st">:_id</span>].to_s
+ =&gt; <span class="st">&quot;563e24c2e301d0978b0003ea&quot;</span> 
+&gt; <span class="dt">Racer</span>.find(id).persisted?
+ =&gt; <span class="dv">true</span> </code></pre>
+<pre class="shell"><code>$ rspec -e spec/model_spec.rb -rq02</code></pre></li>
+<li>Add two instance methods called <code>created_at</code> and <code>updated_at</code> to the <code>Racer</code> class that act as placeholders for property getters. They must
+<ul>
+<li>accept no arguments</li>
+<li>return nil or whatever date you would like. This is, of course, just a placeholder until we implement something that does this for real.</li>
+</ul>
+<p>Hint:</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby"><span class="kw">def</span> created_at
+  <span class="dv">nil</span>
+<span class="kw">end</span>
+<span class="kw">def</span> updated_at
+  <span class="dv">nil</span>
+<span class="kw">end</span></code></pre>
+<pre class="shell"><code>$ rspec -e spec/model_spec.rb -rq03</code></pre></li>
+</ol>
+<h3 id="adding-controller-and-view">Adding Controller and View</h3>
+<p>In this section you will make the model class accessible to the browser by adding a controller and view through Rails scaffold. You carefully implemented the methods and detaisl of the <code>Racer</code> model class so that it should nearly immediately work with these generated classes.</p>
+<ol style="list-style-type: decimal">
+<li><p>Generate a controller and view for the <code>Racer</code> model using the <code>scaffold_controller</code> command. Identify the fields for the model object so the generator creates fields to display and manage them.</p>
+<p>Hint:</p>
+<pre class="shell"><code>$ rails g scaffold_controller racer number:integer first_name last_name gender group secs:integer</code></pre></li>
+<li><p>Add a route to the new controller in <code>config/routes.rb</code> and set the <code>racers#index</code> page to be the root URI for the application.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby"><span class="dt">Rails</span>.application.routes.draw <span class="kw">do</span>
+  resources <span class="st">:racers</span>
+  root to: <span class="st">&#39;racers#index&#39;</span></code></pre>
+<p>Use the <code>rake routes</code> to test and explore your changes.</p>
+<pre class="shell"><code>$ rake routes
+    Prefix Verb   URI Pattern                Controller#Action
+    racers GET    /racers(.:format)          racers#index
+           POST   /racers(.:format)          racers#create
+ new_racer GET    /racers/new(.:format)      racers#new
+edit_racer GET    /racers/:id/edit(.:format) racers#edit
+     racer GET    /racers/:id(.:format)      racers#show
+           PATCH  /racers/:id(.:format)      racers#update
+           PUT    /racers/:id(.:format)      racers#update
+           DELETE /racers/:id(.:format)      racers#destroy
+      root GET    /                          racers#index</code></pre>
+<p>If you attempt to access the index page, you will notice an error stating the following. That is because our all() method returns a collection of hashes and not a collection of <code>Racer</code> instances so that lazy loading can take place. However, we can fix that by using a <code>helper</code> and our <code>Racer.initialize</code> that takes a hash.</p>
+<pre class="sourceCode html"><code class="sourceCode html">undefined method `number&#39; for {}:BSON::Document
+<span class="er">&lt;</span>% @racers.each do |racer| %&gt;
+  <span class="kw">&lt;tr&gt;</span>
+    <span class="kw">&lt;td&gt;</span><span class="er">&lt;</span>%= racer.number %&gt;<span class="kw">&lt;/td&gt;</span> <span class="er">&lt;</span>=========
+    <span class="kw">&lt;td&gt;</span><span class="er">&lt;</span>%= racer.first_name %&gt;<span class="kw">&lt;/td&gt;</span>
+    <span class="kw">&lt;td&gt;</span><span class="er">&lt;</span>%= racer.last_name %&gt;<span class="kw">&lt;/td&gt;</span>
+    <span class="kw">&lt;td&gt;</span><span class="er">&lt;</span>%= racer.gender %&gt;<span class="kw">&lt;/td&gt;</span></code></pre></li>
+<li>Add an instance method to the generated <code>RacersHelper</code> class called <code>toRacer</code>. This class was generated by the <code>scaffold_controller</code> command and placed in <code>app/helpers/racers_helper.rb</code>. The new method must:
+<ul>
+<li>accept a single input argument</li>
+<li>if the type of the input argument is a <code>Racer</code>, simply return the instance unmodified. Else attempt to instantiate a Racer from the input argument and return the result.</li>
+</ul>
+<p>Hint:</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby"><span class="kw">module</span> <span class="dt">RacersHelper</span>
+  <span class="kw">def</span> toRacer(value)
+    <span class="kw">return</span> value.is_a?(<span class="dt">Racer</span>) ? value : <span class="dt">Racer</span>.new(value)
+  <span class="kw">end</span>
+<span class="kw">end</span></code></pre>
+<p>Insert a call to the helper method in <code>app/views/racers/index.html.erb</code></p>
+<p>Hint:</p>
+<pre class="sourceCode html"><code class="sourceCode html"><span class="er">&lt;</span>% @racers.each do |racer| racer=toRacer(racer) %&gt;</code></pre>
+<p>Fix the JSON marshalling in <code>app/views/racers/index.json.jbuilder</code> by adding the call to the helper method as well</p>
+<p>Hint:</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">json.array!(<span class="ot">@racers</span>) <span class="kw">do</span> |racer|
+  racer=toRacer(racer)
+  json.extract! racer, <span class="st">:id</span>, <span class="st">:number</span>, <span class="st">:first_name</span>, <span class="st">:last_name</span>, <span class="st">:gender</span>, <span class="st">:group</span>, <span class="st">:secs</span>
+  json.url racer_url(racer, format: <span class="st">:json</span>)
+<span class="kw">end</span></code></pre></li>
+<li><p>Remove the confirmation dialogs from your Destroy link since we are not using a webdriver that supports javascript for this assignment. Inside the index.html.erb file you will need to change the destroy link to eliminate the confirmation dialog:</p>
+<pre class="sourceCode html"><code class="sourceCode html">from: <span class="er">&lt;</span>%= link_to &#39;Destroy&#39;, racer, method: :delete, data: { confirm: &#39;Are you sure?&#39; } %&gt;
+to: <span class="er">&lt;</span>%= link_to &#39;Destroy&#39;, racer, method: :delete %&gt;</code></pre></li>
+<li><p>Access the root URI for the application and take your application for a test drive.</p>
+<pre class="shell"><code>$ rspec spec/scaffold_spec.rb</code></pre></li>
+</ol>
+<h3 id="adding-pagination">Adding Pagination</h3>
+<p>Although we are not using a large dataset, we are still using an amount of records sorted by an non-indexed property and can notice some delay in accessing a page with all of our results. Add <code>will_paginate</code> support for paging. The UI portion will be handled automatically but you must add query support for the new paginated call. Luckily you already have most of that implemented.</p>
+<ol style="list-style-type: decimal">
+<li>Add a class method to the <code>Racer</code> class called <code>paginate</code>. This method must:</li>
+</ol>
+<ul>
+<li>accept a hash as input parameters</li>
+<li>extract the <code>:page</code> property from that hash, convert to an integer, and default to the value of <code>1</code> if not set.</li>
+<li>extract the <code>:per_page</code> property from that hash, convert to an integer, and default to the value of <code>30</code> if not set</li>
+<li>find all racers sorted by <code>number</code> assending.</li>
+<li>limit the results to page and limit values.</li>
+<li>convert each document hash to an instance of a <code>Racer</code> class</li>
+<li><p>Return a <code>WillPaginate::Collection</code> with the <code>page</code>, <code>limit</code>, and <code>total</code> values filled in -- as well as the page worth of data.</p>
+<p>Hint:</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby"><span class="kw">def</span> <span class="dv">self</span>.paginate(params)
+  page=(params[<span class="st">:page</span>] || <span class="dv">1</span>).to_i
+  limit=(params[<span class="st">:per_page</span>] || <span class="dv">30</span>).to_i
+  skip=(page<span class="dv">-1</span>)*limit
+
+  racers=[]
+  ...find racer docs
+     racers &lt;&lt; <span class="dt">Racer</span>.new(doc)
+  ...
+  total=...get collection size
+
+  <span class="dt">WillPaginate</span>::<span class="dt">Collection</span>.create(page, limit, total) <span class="kw">do</span> |pager|
+    pager.replace(racers)
+  <span class="kw">end</span>
+<span class="kw">end</span></code></pre>
+<p>Use the <code>rails console</code> to test and explore your changes.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; reload!
+&gt; page=<span class="dt">Racer</span>.paginate(page:<span class="dv">1</span>)
+&gt; page.current_page
+ =&gt; page <span class="dv">1</span> 
+&gt; page.per_page
+ =&gt; <span class="dv">30</span> 
+&gt; page.total_pages
+ =&gt; <span class="dv">34</span> 
+&gt; page.count
+ =&gt; <span class="dv">30</span>
+&gt; page.total_entries
+ =&gt; <span class="dv">1001</span> </code></pre>
+<pre class="shell"><code>$ rspec spec/paginate_spec.rb -e rq01</code></pre></li>
+</ul>
+<ol start="2" style="list-style-type: decimal">
+<li><p>Update the <code>racers#index</code> method to use the new <code>Racer.paginate</code> method instead of the scaffold <code>Racer.all</code> method. This method is located in <code>app/controllers/racers_controller.rb</code></p>
+<p>Hint:</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby"><span class="kw">def</span> index
+  <span class="co">#@racers = Racer.all</span>
+  <span class="ot">@racers</span> = <span class="dt">Racer</span>.paginate(page<span class="st">:params</span>[<span class="st">:page</span>], per_page<span class="st">:params</span>[<span class="st">:per_page</span>])
+<span class="kw">end</span></code></pre>
+<p>Use the browser to test and explore your changes.</p>
+<pre class="url"><code>http://localhost:3000/racers?page=1&amp;per_page=5</code></pre>
+<pre class="shell"><code>$ rspec spec/paginate_spec.rb -e rq02</code></pre></li>
+<li><p>Add the <code>will_paginate</code> command to the <code>racers#index</code> view page in <code>app/views/racers/index.html.erb</code>.</p>
+<p>Hint:</p>
+<pre class="sourceCode html"><code class="sourceCode html"><span class="kw">&lt;table&gt;</span>
+  <span class="kw">&lt;tbody&gt;</span>
+    <span class="er">&lt;</span>% @racers.each do |racer| racer=toRacer(racer) %&gt;
+      ...
+    <span class="er">&lt;</span>% end %&gt;
+  <span class="kw">&lt;/tbody&gt;</span>
+<span class="kw">&lt;/table&gt;</span>
+
+<span class="er">&lt;</span>%= will_paginate @racers %&gt;</code></pre>
+<p>User the browser to test and navigate the pages of racers. Note that will_paginate does not autotically add anything for page_size.</p>
+<pre class="shell"><code>$ rspec spec/paginate_spec.rb -e rq03</code></pre></li>
+</ol>
+<h3 id="heroku-deployment">Heroku Deployment</h3>
+<p>(Ungraded/Optional) In this section you will optionally configure your solution for a Heroku deployment. Feel free to submit the assignment for grading and continue on with this optional work. You should be able to find details about the changes required for deployment within the <code>Zips</code> example and in the lecture on deployment.</p>
+<ol style="list-style-type: decimal">
+<li><p>Create a database and user account on <a href="https://mongolab.com"><code>MongoLab</code></a>.</p></li>
+<li><p>Import the <code>race_results.json</code> into the MongoLab database.</p></li>
+<li><p>Create an application on <a href="https://heroku.com"><code>Heroku</code></a>. Name your application <code>raceday#####</code> where <code>#####</code> is a random, unassigned number.</p></li>
+<li><p>Configure the application for use on Heroku by:</p>
+<ul>
+<li>updating the <code>config/mongoid.yml</code> file with a deployment profile</li>
+<li>updating the <code>Gemfile</code> to satisfy <code>Heroku</code> RDBMS constraints for ActiveRecord.</li>
+</ul></li>
+<li><p>Deploy the application to Heroku and access via the web.</p></li>
+</ol>
+<h2 id="self-gradingfeedback">Self Grading/Feedback</h2>
+<p>Some unit tests have been provided in the bootstrap files and provide examples of tests the grader will be evaluating for when you submit your solution. They must be run from the project root directory.</p>
+<pre class="shell"><code>$ rspec 
+...
+(N) examples, 0 failures</code></pre>
+<p>You can run as many specific tests you wish be adding <code>-e rq## -e rq##</code></p>
+<pre class="shell"><code>$ rspec (spec path) -e rq01 -e rq02</code></pre>
+<h2 id="submission">Submission</h2>
+<p>Submit an .zip archive (other archive forms not currently supported) with your solution root directory as the top-level (e.g., your Gemfile and sibling files must be in the root of the archive and <em>not</em> in a sub-folder. The grader will replace the spec files with fresh copies and will perform a test with different query terms.</p>
+<pre class="text"><code>|-- app
+|   |-- assets
+|   |-- controllers
+|   |-- helpers
+|   |-- mailers
+|   |-- models
+|   `-- views
+|-- bin
+|-- config
+|-- config.ru
+|-- db
+|-- Gemfile
+|-- Gemfile.lock
+|-- lib
+|-- log
+|-- public
+|-- Rakefile
+|-- README.rdoc
+|-- test
+`-- vendor</code></pre>
+<h4 id="last-updated-2015-12-07">Last Updated: 2015-12-07</h4>
