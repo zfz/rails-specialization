@@ -1,0 +1,930 @@
+<h1 id="module-2-summative-assignment-advanced-mongodb-ruby-driver-topics">Module 2, Summative Assignment: Advanced MongoDB Ruby Driver Topics</h1>
+<p>This assignment will evaluate your ability to implement a data tier using some of the more advanced MongoDB Ruby Driver Topics discussed during this module. It is lengthy -- but much of the length is the result of providing:</p>
+<ul>
+<li>extensive examples that seek to further explain what is being asked to implement</li>
+<li>demonstrations of how you can interactively look at your in-progress solution and self-evaluate the result</li>
+</ul>
+<p>The overall goal of the assignment is to:</p>
+<ul>
+<li>Implement a model class and a set of supporting classes to represent a complex type for a collection.</li>
+<li>Implement standard queries</li>
+<li>Implement aggregation pipeline queries</li>
+<li>Create an index and implement geolocation queries</li>
+<li>Implement GridFS file storage and retrieval</li>
+<li>Implement and navigate a relationship from a model class</li>
+<li>Demonstrate the data tier's ability to serve content to the web</li>
+<li>Demonstrate the data tier's ability to leverage relationships between collections to the web.</li>
+</ul>
+<p>The functional goal of the assignment is to:</p>
+<ul>
+<li>Implement a data tier to manage <code>place</code>s and <code>photo</code>s and associate <code>photo</code>s with a nearby <code>place</code></li>
+<li>Implement a web tier to view <code>place</code>s and their associated <code>photo</code>s.</li>
+</ul>
+<h2 id="functional-requirements">Functional Requirements</h2>
+<ol style="list-style-type: decimal">
+<li><p>Implement a model and supporting classes to encapsulate access to the <code>places</code> collection. Import data -- primarily thru the <a href="https://developers.google.com/maps/documentation/geocoding/intro?csw=1"><code>google maps API</code></a> -- into this collection.</p></li>
+<li><p>Implement standard queries for the <code>places</code> collection. This will get you familiar with the schema as well as provide some necessary functions for the overall data tier.</p></li>
+<li><p>Implement advanced queries for the <code>places</code> collection using the <a href="https://docs.mongodb.org/manual/core/aggregation-pipeline/">aggregation framework</a>. This will locate information that is embedded within the nested <code>places</code> schema.</p></li>
+<li><p>Implement geolocation queries using a <a href="https://docs.mongodb.org/manual/core/2dsphere/"><code>2dsphere</code></a> index for the <code>places</code> collection, which will locate a place within a distance threshold.</p></li>
+<li><p>Implement a model class called <code>Photo</code> that will encapsulate actions performed on photos (<code>jpeg</code> only). This model class will:</p>
+<ul>
+<li>import photo images from files</li>
+<li>extract geolocation information from the image using the <a href="https://github.com/remvee/exifr/"><code>exifr</code></a> gem. The images are <a href="https://en.wikipedia.org/wiki/Geotagging"><code>geotagged</code></a> <code>jpeg</code> images and contain geolocation coordinates in the <a href="https://en.wikipedia.org/wiki/Exchangeable_image_file_format"><code>exif</code></a> portion of the image. You will will use the <code>exifr</code> gem to extract the <code>exif</code> geolocation information from the <code>jpeg</code> images.</li>
+<li>store, update, and retrieve photo information and data from GridFS</li>
+</ul></li>
+<li><p>Add support functions to locate the nearest <code>places</code> for a <code>photo</code> and associate each <code>photo</code> with a <code>place</code> within distance tolerances.</p></li>
+<li><p>Populate the data tier using <code>$rake db:seed</code> for demonstration with the web tier</p></li>
+<li><p>Display raw <code>photo</code> image content from a web URI.</p></li>
+<li><p>Display <code>place</code> information and associated <code>photo</code> images from a set of web URIs.</p></li>
+</ol>
+<h2 id="getting-started">Getting Started</h2>
+<ol style="list-style-type: decimal">
+<li><p>Create a new Rails application called <code>places</code>.</p>
+<pre class="shell"><code>$ rails new places
+$ cd places</code></pre></li>
+<li><p>Add the <code>mongo</code> and <code>mongoid</code> gems to the Gemfile and run <code>bundle</code>. The <code>mongoid</code> gem will automatically install the <code>mongo</code> gem but since we are still focusing on the MongoDB Ruby Driver, we want to explicitly show that dependency here. More recent versions of the <code>mongo</code> and <code>mongoid</code> gems will likely be installed as a part of the <code>bundle</code> command.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">gem <span class="st">&#39;mongo&#39;</span>, <span class="st">&#39;~&gt; 2.1.0&#39;</span>
+gem <span class="st">&#39;mongoid&#39;</span>, <span class="st">&#39;~&gt; 5.0.0&#39;</span></code></pre>
+<pre class="shell"><code>$ bundle</code></pre></li>
+<li><p>Configure <code>mongoid</code> within the application by generating a configuration file and loading that within <code>places/config/application.rb</code>. The defaults generated should be fine.</p>
+<pre class="shell"><code>$ rails g mongoid:config
+      create  config/mongoid.yml</code></pre>
+<ul>
+<li>If the <code>load!</code> statement is not present in your application.rb, add it just before the <code>end</code> statement in the class <code>Application</code> definition</li>
+</ul>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">$ grep mongoid config/application.rb 
+<span class="co">#bootstraps mongoid within applications -- like rails console</span>
+<span class="dt">Mongoid</span>.load!(<span class="st">&#39;./config/mongoid.yml&#39;</span>)</code></pre>
+<ul>
+<li>Verify (or update) that <code>development:clients:default:database</code> references <code>places_development</code></li>
+</ul>
+<pre class="shell"><code>$ egrep -v &#39;\#|$^&#39; config/mongoid.yml 
+development:
+  clients:
+    default:
+      database: places_development
+      hosts:
+        - localhost:27017
+      options:
+  options:</code></pre></li>
+<li><p>After starting your MongoDB Database via <code>mongod</code>, use the <code>rails console</code> during your development to interactively test your data tier solutions. Remember to use <code>reload!</code><br /> after making changes to your source code.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">$ rails c
+&gt; <span class="dt">Mongoid</span>::<span class="dt">Clients</span>.default
+ =&gt; <span class="co">#&lt;Mongo::Client:0x39062920 cluster=localhost:27017&gt;</span></code></pre></li>
+<li><p>Download and extract the starter set of boostrap files for this assignment.</p>
+<pre class="shell"><code>student-start/
+|-- Gemfile
+|-- db
+|   |-- image1.jpg
+|   |-- image2.jpg
+|   |-- image3.jpg
+|   |-- image4.jpg
+|   |-- image5.jpg
+|   |-- image6.jpg
+|   `-- places.json
+|-- .rspec (an important hidden file)
+`-- spec
+    |-- aggregation_spec.rb
+    |-- collection_spec.rb
+    |-- geo_spec.rb
+    |-- images_spec.rb
+    |-- photos_spec.rb
+    |-- query_spec.rb
+    |-- rel_spec.rb
+    |-- seed_spec.rb
+    `-- web_spec.rb</code></pre>
+<ul>
+<li><p>Overwrite your existing <code>Gemfile</code> with the <code>Gemfile</code> from the bootstrap fileset. They should be nearly identical, but this is done to make sure the gems and versions you use in your solution can be processed by the automated Grader when you submit. Any submission should be tested with this version of the file.</p>
+<p><strong>NOTE</strong> the Gemfile includes a section added for testing.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">group <span class="st">:test</span> <span class="kw">do</span>
+    gem <span class="st">&#39;rspec-rails&#39;</span>, <span class="st">&#39;~&gt; 3.0&#39;</span>
+    gem <span class="st">&#39;capybara&#39;</span>
+<span class="kw">end</span></code></pre>
+<p>as well as a new definition for the following items:</p>
+<ul>
+<li><code>tzinfo-data</code> gem conditionally included on Windows platforms</li>
+<li><code>mongo</code> gem containing the MongoDB Ruby Driver</li>
+<li><code>mongoid</code> gem we will use to obtain connections</li>
+<li><code>exifr</code> gem we will use to extract geo coordinates from <code>jpeg</code> images</li>
+</ul>
+<pre class="sourceCode ruby"><code class="sourceCode ruby"><span class="co"># Windows does not include zoneinfo files, so bundle the tzinfo-data gem</span>
+gem <span class="st">&#39;tzinfo-data&#39;</span>, platforms: [<span class="st">:mingw</span>, <span class="st">:mswin</span>, <span class="st">:x64_mingw</span>, <span class="st">:jruby</span>]
+gem <span class="st">&#39;mongo&#39;</span>, <span class="st">&#39;~&gt; 2.1.0&#39;</span>
+gem <span class="st">&#39;mongoid&#39;</span>, <span class="st">&#39;~&gt; 5.0.0&#39;</span>
+gem <span class="st">&#39;exifr&#39;</span></code></pre></li>
+<li><p>Add the provided image and json data files to your <code>db/</code> directory.</p></li>
+<li><p>Add the <code>spec/*.rb</code> files provided with the bootstrap fileset to a corresponding <code>spec/</code> directory within your <code>places</code> application. These files contain tests that will help determine whether you have completed the assignment. Be sure to also copy the hidden <code>.rspec</code> file in the root directory.</p></li>
+</ul></li>
+<li><p>Run the <code>bundle</code> command to make sure all gems are available.</p>
+<pre class="shell"><code>$ bundle</code></pre></li>
+<li><p>Run the <code>rake db:migrate</code> command to resolve potential <code>db/schema.rb</code> warnings that checks for its existence.</p></li>
+<li><p>Run the rspec test(s) to receive feedback. <code>rspec</code> must be run from the root directory of your application. There are several test files provided for this assignment. Many of those files are designed to test your code at specific points as you proceed through the technical requirements of this assignment. Initially, majority of tests will (obviously) fail until you complete the requirements necessary for them to pass.</p>
+<pre class="shell"><code>$ rspec 
+...
+(N) examples, (N) failures, (N) pending</code></pre>
+<p>To focus test feedback on a specific step of the requirements, add the specific file (path included) with the tests along with &quot;-e rq##&quot; to the rspec command line to only evaluate a specific requirement. Pad all step numbers to two digits.</p>
+<pre class="shell"><code>$ rspec spec/collection_spec.rb -e rq01
+...
+(N) examples, (N) failures, (N) pending</code></pre></li>
+<li><p>Implement your solution to the technical requirements and use the rspec tests to help verify your completed solution.</p></li>
+<li><p>Submit your Rails app solution for grading.</p></li>
+</ol>
+<h2 id="technical-requirements">Technical Requirements</h2>
+<h3 id="places-collection">Places Collection</h3>
+<p>In this section you must implement a model class called <code>Place</code> and two supporting classes called <code>Point</code> and <code>AddressComponent</code>. The three (3) classes are used to encapsulate the properties of the data within the <code>places</code> collection. <code>Place</code> will be the primary class for database interaction. <code>Point</code> encapsulates a geolocation coordinate. <code>AddressComponent</code> encapsulates many address aliases within a <code>Place</code>.</p>
+<ol start="0" style="list-style-type: decimal">
+<li><p>Confirm that your rails application is appropriately structured.</p>
+<pre class="shell"><code>$ rspec spec/collection_spec.rb -e rq00</code></pre></li>
+<li><p>Create a model class called <code>Place</code>. This class must:</p>
+<ul>
+<li>provide a class method called <code>mongo_client</code> that returns a MongoDB Client from Mongoid referencing the default database from the <code>config/mongoid.yml</code> file (Hint: <code>Mongoid::Clients.default</code>)</li>
+<li>provide a class method called <code>collection</code> that returns a reference to the <code>places</code> collection.</li>
+</ul>
+<p>You can demonstrate your new model class and methods using the <code>rails console</code>.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; reload!
+&gt; <span class="dt">Place</span>.mongo_client
+ =&gt; <span class="co">#&lt;Mongo::Client:0x39062920 cluster=localhost:27017&gt; </span>
+&gt; <span class="dt">Place</span>.collection
+ =&gt; <span class="co">#&lt;Mongo::Collection:0x15439920 namespace=places_development.places&gt;</span></code></pre>
+<pre class="shell"><code>$ rspec spec/collection_spec.rb -e rq01</code></pre></li>
+<li><p>Implement a class method called <code>load_all</code> that will bulk load a JSON document with <code>places</code> information into the places collection. This method must</p>
+<ul>
+<li>accept a parameter of type <code>IO</code> with a JSON string of data</li>
+<li>read the data from that input parameter (Note: this is similar handling an uploaded file within Rails)</li>
+<li>parse the JSON string into an array of Ruby hash objects representing places (Hint: <code>JSON.parse</code>)</li>
+<li>insert the array of hash objects into the <code>places collection</code> (Hint: <code>insert_many</code>)</li>
+</ul>
+<p>You can demonstrate your new model class and methods using the Rails console.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; f=<span class="dt">File</span>.open(<span class="st">&quot;./db/places.json&quot;</span>); <span class="dv">nil</span>
+&gt; <span class="dt">Place</span>.load_all(f)
+&gt; <span class="dt">Place</span>.collection.count
+ =&gt; <span class="dv">39</span>
+&gt; pp <span class="dt">Place</span>.collection.find.first; <span class="dv">nil</span>
+{<span class="st">&quot;_id&quot;</span>=&gt;<span class="dt">BSON</span>::<span class="dt">ObjectId</span>(<span class="st">&#39;56521833e301d0284000003d&#39;</span>),
+ <span class="st">&quot;address_components&quot;</span>=&gt;
+  [{<span class="st">&quot;long_name&quot;</span>=&gt;<span class="st">&quot;Wilsden&quot;</span>,
+    <span class="st">&quot;short_name&quot;</span>=&gt;<span class="st">&quot;Wilsden&quot;</span>,
+    <span class="st">&quot;types&quot;</span>=&gt;[<span class="st">&quot;administrative_area_level_4&quot;</span>, <span class="st">&quot;political&quot;</span>]},
+   {<span class="st">&quot;long_name&quot;</span>=&gt;<span class="st">&quot;Bradford District&quot;</span>,
+    <span class="st">&quot;short_name&quot;</span>=&gt;<span class="st">&quot;Bradford District&quot;</span>,
+    <span class="st">&quot;types&quot;</span>=&gt;[<span class="st">&quot;administrative_area_level_3&quot;</span>, <span class="st">&quot;political&quot;</span>]},
+   {<span class="st">&quot;long_name&quot;</span>=&gt;<span class="st">&quot;West Yorkshire&quot;</span>,
+    <span class="st">&quot;short_name&quot;</span>=&gt;<span class="st">&quot;West York&quot;</span>,
+    <span class="st">&quot;types&quot;</span>=&gt;[<span class="st">&quot;administrative_area_level_2&quot;</span>, <span class="st">&quot;political&quot;</span>]},
+   {<span class="st">&quot;long_name&quot;</span>=&gt;<span class="st">&quot;England&quot;</span>,
+    <span class="st">&quot;short_name&quot;</span>=&gt;<span class="st">&quot;England&quot;</span>,
+    <span class="st">&quot;types&quot;</span>=&gt;[<span class="st">&quot;administrative_area_level_1&quot;</span>, <span class="st">&quot;political&quot;</span>]},
+   {<span class="st">&quot;long_name&quot;</span>=&gt;<span class="st">&quot;United Kingdom&quot;</span>,
+    <span class="st">&quot;short_name&quot;</span>=&gt;<span class="st">&quot;GB&quot;</span>,
+    <span class="st">&quot;types&quot;</span>=&gt;[<span class="st">&quot;country&quot;</span>, <span class="st">&quot;political&quot;</span>]}],
+ <span class="st">&quot;formatted_address&quot;</span>=&gt;<span class="st">&quot;Wilsden, West Yorkshire, UK&quot;</span>,
+ <span class="st">&quot;geometry&quot;</span>=&gt;
+  {<span class="st">&quot;bounds&quot;</span>=&gt;
+    {<span class="st">&quot;northeast&quot;</span>=&gt;{<span class="st">&quot;lat&quot;</span>=&gt;<span class="fl">53.8399586</span>, <span class="st">&quot;lng&quot;</span>=&gt;-<span class="fl">1.8368897</span>},
+     <span class="st">&quot;southwest&quot;</span>=&gt;{<span class="st">&quot;lat&quot;</span>=&gt;<span class="fl">53.8078964</span>, <span class="st">&quot;lng&quot;</span>=&gt;-<span class="fl">1.8899853</span>}},
+   <span class="st">&quot;location&quot;</span>=&gt;{<span class="st">&quot;lat&quot;</span>=&gt;<span class="fl">53.8256035</span>, <span class="st">&quot;lng&quot;</span>=&gt;-<span class="fl">1.8625303</span>},
+   <span class="st">&quot;location_type&quot;</span>=&gt;<span class="st">&quot;APPROXIMATE&quot;</span>,
+   <span class="st">&quot;viewport&quot;</span>=&gt;
+    {<span class="st">&quot;northeast&quot;</span>=&gt;{<span class="st">&quot;lat&quot;</span>=&gt;<span class="fl">53.8399586</span>, <span class="st">&quot;lng&quot;</span>=&gt;-<span class="fl">1.8368897</span>},
+     <span class="st">&quot;southwest&quot;</span>=&gt;{<span class="st">&quot;lat&quot;</span>=&gt;<span class="fl">53.8078964</span>, <span class="st">&quot;lng&quot;</span>=&gt;-<span class="fl">1.8899853</span>}}},
+ <span class="st">&quot;place_id&quot;</span>=&gt;<span class="st">&quot;ChIJRRp9xvble0gR7M3MlaQDgok&quot;</span>,
+ <span class="st">&quot;types&quot;</span>=&gt;[<span class="st">&quot;administrative_area_level_4&quot;</span>, <span class="st">&quot;political&quot;</span>]}</code></pre>
+<p>Note that you can always clear the <code>places</code> collection and start over using <code>delete_many</code>.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; <span class="dt">Place</span>.collection.delete_many</code></pre>
+<pre class="shell"><code>$ rspec spec/collection_spec.rb -e rq02</code></pre></li>
+<li><p>Implement a custom type called <code>Point</code>. This class must have:</p>
+<ul>
+<li>a read/write (Integer) attribute called <code>longitude</code> (Hint: <code>attr_accessor</code>)</li>
+<li>a read/write (Integer) attribute called <code>latitude</code> (Hint: <code>attr_accessor</code>)</li>
+<li>a <code>to_hash</code> instance method that will produce a <code>GeoJSON Point</code> hash (<strong>Hint</strong>: see example below)</li>
+<li>an <code>initialize</code> method that can set the attributes from a hash with keys <code>lat</code> and <code>lng</code> or <code>GeoJSON Point</code> format.</li>
+</ul>
+<p>Example hash:</p>
+<pre class="sourceCode json"><code class="sourceCode json">{<span class="dt">&quot;type&quot;</span>:<span class="st">&quot;Point&quot;</span>, <span class="dt">&quot;coordinates&quot;</span>:[ <span class="fl">-1.8625303</span>, <span class="fl">53.8256035</span>]} <span class="er">#GeoJSON</span> <span class="er">Point</span> <span class="er">format</span>
+{<span class="dt">&quot;lat&quot;</span>:<span class="fl">53.8256035</span>, <span class="dt">&quot;lng&quot;</span>:<span class="fl">-1.8625303</span>}</code></pre>
+<pre class="shell"><code>$ rspec spec/collection_spec.rb -e rq03</code></pre></li>
+<li><p>Implement a custom type called <code>AddressComponent</code>. This class must have:</p>
+<ul>
+<li>a read-only (String) attribute called <code>long_name</code></li>
+<li>a read-only (String) attribute called <code>short_name</code></li>
+<li>a read-only (array of Strings) attribute called <code>types</code></li>
+<li>an <code>initialize</code> method that can set the attributes from a hash with keys <code>long_name</code>, <code>short_name</code>, and <code>types</code>.</li>
+</ul>
+<p>Example hash:</p>
+<pre class="sourceCode json"><code class="sourceCode json">{<span class="dt">&quot;long_name&quot;</span>:<span class="st">&quot;Bradford District&quot;</span>,
+ <span class="dt">&quot;short_name&quot;</span>:<span class="st">&quot;Bradford District&quot;</span>,
+ <span class="dt">&quot;types&quot;</span>:[<span class="st">&quot;administrative_area_level_3&quot;</span>, <span class="st">&quot;political&quot;</span>]}<span class="er">,</span></code></pre>
+<pre class="shell"><code>$ rspec spec/collection_spec.rb -e rq04</code></pre></li>
+<li><p>Implement read/write attributes for the following properties in <code>Place</code>. (Hint: <code>attr_accessor</code>)</p>
+<ul>
+<li>a read/write (String) attribute called <code>id</code></li>
+<li>a read/write (String) attribute called <code>formatted_address</code></li>
+<li>a read/write (Point) attribute called <code>location</code></li>
+<li>a read/write (collection of AddressComponents) attribute called <code>address_components</code></li>
+<li>an <code>initialize</code> method to <code>Place</code> that can set the attributes from a hash with keys <code>_id</code>, <code>address_components</code>, <code>formatted_address</code>, and <code>geometry.geolocation</code>. (<strong>Hint</strong>: use <code>.to_s</code> to convert a <code>BSON::ObjectId</code> to a <code>String</code> and <code>BSON::ObjectId.from_string(s)</code> to convert it back again.)</li>
+</ul>
+<p>Example hash:</p>
+<pre class="sourceCode json"><code class="sourceCode json">{<span class="dt">&quot;_id&quot;</span>:<span class="er">BSON::ObjectId(&#39;</span><span class="dv">56521833e301</span><span class="er">d</span><span class="dv">0284000003</span><span class="er">d&#39;)</span>,
+ <span class="dt">&quot;address_components&quot;</span>:
+  [
+    {<span class="dt">&quot;long_name&quot;</span>:<span class="st">&quot;Wilsden&quot;</span>, <span class="dt">&quot;short_name&quot;</span>:<span class="st">&quot;Wilsden&quot;</span>, <span class="dt">&quot;types&quot;</span>:[<span class="st">&quot;administrative_area_level_4&quot;</span>, <span class="st">&quot;political&quot;</span>]},
+    {<span class="dt">&quot;long_name&quot;</span>:<span class="st">&quot;Bradford District&quot;</span>, <span class="dt">&quot;short_name&quot;</span>:<span class="st">&quot;Bradford District&quot;</span>, <span class="dt">&quot;types&quot;</span>:[<span class="st">&quot;administrative_area_level_3&quot;</span>, <span class="st">&quot;political&quot;</span>]}
+  ],
+ <span class="dt">&quot;formatted_address&quot;</span>:<span class="st">&quot;Wilsden, West Yorkshire, UK&quot;</span>,
+ <span class="dt">&quot;geometry&quot;</span>:
+    {
+        <span class="dt">&quot;location&quot;</span>:{<span class="dt">&quot;lat&quot;</span>:<span class="st">&quot;53.8256035, &quot;</span><span class="er">lng</span><span class="st">&quot;:-1.8625303},</span>
+<span class="st">        &quot;</span><span class="er">geolocation</span><span class="st">&quot;:{&quot;</span><span class="er">type</span><span class="st">&quot;:&quot;</span><span class="er">Point</span><span class="st">&quot;, &quot;</span><span class="er">coordinates</span><span class="st">&quot;:[-1.8625303, 53.8256035]}</span>
+<span class="st">    }</span>
+<span class="st"> }</span></code></pre>
+<p><strong>Note</strong>: The <code>GeoJSON Point</code> format was added to the test data from the original information obtained from google maps. MongoDB <code>2dsphere</code> index and <code>2dsphere</code> search functions require this format to function correctly. Anything we do with geolocation in this exercise will use the <code>geolocation</code> property.</p>
+<pre class="shell"><code>$ rspec spec/collection_spec.rb -e rq05</code></pre></li>
+</ol>
+<h3 id="standard-queries">Standard Queries</h3>
+<p>In this section you must implement a few standard queries for <code>Places</code>. This is a short warm-up to get familiar with the schema and utlizes the query topics from the previous module.</p>
+<ol style="list-style-type: decimal">
+<li><p>Implement a class method called <code>find_by_short_name</code> that will return a <code>Mongo::Collection::View</code> with a query to match documents with a matching <code>short_name</code> within <code>address_components</code>. This method must:</p>
+<ul>
+<li>accept a String input parameter</li>
+<li>find all documents in the <code>places</code> collection with a matching <code>address_components.short_name</code></li>
+<li>return the <code>Mongo::Collection::View</code> result</li>
+</ul>
+<p>You can demonstrate your new class method using the Rails console. Notice how the view returned from the <code>find</code> command can be extended with sorting and paging commands.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; <span class="dt">Place</span>.find_by_short_name(<span class="st">&quot;GB&quot;</span>).first[<span class="st">:formatted_address</span>]
+ =&gt; <span class="st">&quot;Wilsden, West Yorkshire, UK&quot;</span> 
+&gt; <span class="dt">Place</span>.find_by_short_name(<span class="st">&quot;GB&quot;</span>).sort(<span class="st">:formatted_address=</span>&gt;<span class="dv">1</span>).skip(<span class="dv">4</span>).first[<span class="st">:formatted_address</span>]
+ =&gt; <span class="st">&quot;Bradford, West Yorkshire BD15, UK&quot;</span></code></pre>
+<pre class="shell"><code>$ rspec spec/query_spec.rb -e rq01</code></pre></li>
+<li><p>Implement a helper class method called <code>to_places</code> that will accept a <code>Mongo::Collection::View</code> and return a collection of <code>Place</code> instances. This method must:</p>
+<ul>
+<li>accept an input parameter</li>
+<li>iterate over contents of that input parameter</li>
+<li>change each document hash to a Place instance (<strong>Hint</strong>: <code>Place.new</code>)</li>
+<li>return a collection of results containing <code>Place</code> objects</li>
+</ul>
+<p>You can demonstrate your new class helper method using the Rails console. Notice that by separating the find from the <code>Place</code> collection creation, we can allow sorting and paging be independently applied.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; <span class="dt">Place</span>.to_places(<span class="dt">Place</span>.find_by_short_name(<span class="st">&quot;GB&quot;</span>)).first.location
+ =&gt; <span class="co">#&lt;Point:0x00000004dc6f00 @latitude=53.8256035, @longitude=-1.8625303&gt; </span>
+
+&gt; <span class="dt">Place</span>.to_places(<span class="dt">Place</span>.find_by_short_name(<span class="st">&quot;GB&quot;</span>).limit(<span class="dv">3</span>)).each {|r| p r.formatted_address }; <span class="dv">nil</span>
+<span class="st">&quot;Wilsden, West Yorkshire, UK&quot;</span>
+<span class="st">&quot;8 Badgergate Ave, Wilsden, Bradford, West Yorkshire BD15 0LJ, UK&quot;</span>
+<span class="st">&quot;Wilsden, West Yorkshire, UK&quot;</span></code></pre>
+<pre class="shell"><code>$ rspec spec/query_spec.rb -e rq02</code></pre></li>
+<li><p>Implement a class method called <code>find</code> that will return an instance of <code>Place</code> for a supplied <code>id</code>. This method must:</p>
+<ul>
+<li>accept a single String <code>id</code> as an argument</li>
+<li>convert the <code>id</code> to <code>BSON::ObjectId</code> form (<strong>Hint</strong>: <code>BSON::ObjectId.from_string(s)</code>)</li>
+<li>find the document that matches the <code>id</code></li>
+<li>return an instance of <code>Place</code> initialized with the document if found (Hint: <code>Place.new</code>)</li>
+</ul>
+<p>You can demonstrate your new class method using the Rails console.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby"> &gt; id=<span class="dt">Place</span>.collection.find.first[<span class="st">:_id</span>].to_s
+  =&gt; <span class="st">&quot;56521833e301d0284000003d&quot;</span> 
+
+ &gt; <span class="dt">Place</span>.find(id).formatted_address
+  =&gt; <span class="st">&quot;Wilsden, West Yorkshire, UK&quot;</span> 
+ &gt; <span class="dt">Place</span>.find(id).location
+  =&gt; <span class="co">#&lt;Point:0x000000054b2fa8 @latitude=53.8256035, @longitude=-1.8625303&gt; </span></code></pre>
+<pre class="shell"><code>$ rspec spec/query_spec.rb -e rq03</code></pre></li>
+<li><p>Implement a class method called <code>all</code> that will return an instance of all documents as <code>Place</code> instances. This method must:</p>
+<ul>
+<li>accept two optional arguments: <code>offset</code> and <code>limit</code> in that order. <code>offset</code> must default to no offset and <code>limit</code> must default to no limit</li>
+<li>locate all documents within the <code>places</code> collection within paging limits</li>
+<li>return each document as in instance of a <code>Place</code> within a collection</li>
+</ul>
+<p>You can demonstrate your new class method using the Rails console. Notice that the return type is a collection of <code>Place</code> instances and that <code>offset</code> (default=0) and <code>limit</code> (default=unlimited) are the default.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; <span class="dt">Place</span>.all(<span class="dv">4</span>,<span class="dv">3</span>).map {|place| place.formatted_address}
+ =&gt; [<span class="st">&quot;Costa Rica&quot;</span>, <span class="st">&quot;Desert Hot Springs, CA 92241, USA&quot;</span>, 
+     <span class="st">&quot;Zieglmeierstra.e 11, 82383 Hohenpei.enberg, Germany&quot;</span>] 
+
+&gt; <span class="dt">Place</span>.all.count
+ =&gt; <span class="dv">39</span> </code></pre>
+<pre class="shell"><code>$ rspec spec/query_spec.rb -e rq04</code></pre></li>
+<li><p>Implement an instance method called <code>destroy</code> in the <code>Place</code> model class that will delete the document associtiated with its assigned <code>id</code>. This method must:</p>
+<ul>
+<li>accept no arguments</li>
+<li>delete the document from the <code>places</code> collection that has an <code>_id</code> associated with the <code>id</code> of the instance.</li>
+</ul>
+<p>You can demonstrate your new method using the Rails console. In the example below we grab a random sample <code>place</code> and call destroy.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; place=<span class="dt">Place</span>.all.sample
+&gt; place.destroy
+ =&gt; <span class="co">#&lt;Mongo::Operation::Result:48622960 documents=[{&quot;ok&quot;=&gt;1, &quot;n&quot;=&gt;1}]&gt; </span></code></pre>
+<p>In the following example, we use <code>all</code> and <code>destroy</code> together to implement a somewhat expensive but convenient and functional way to clear the collection.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; <span class="dt">Place</span>.all.each {|place| place.destroy }
+&gt; <span class="dt">Place</span>.all.count
+ =&gt; <span class="dv">0</span> </code></pre>
+<p><strong>Note</strong>: Remember you can restore your places collection (with new <code>_id</code>s) by using your <code>load_all</code> method implemented earlier.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; <span class="dt">Place</span>.load_all(<span class="dt">File</span>.open(<span class="st">&#39;./db/places.json&#39;</span>))</code></pre>
+<pre class="shell"><code>$ rspec spec/query_spec.rb -e rq05</code></pre></li>
+</ol>
+<h3 id="aggregation-framework-queries">Aggregation Framework Queries</h3>
+<p>In this section you must implement several queries using the aggregation framework using various <a href="https://docs.mongodb.org/manual/reference/operator/aggregation-pipeline/"><code>pipeline operators</code></a> to derive the proper query result.</p>
+<ol style="list-style-type: decimal">
+<li><p>Create a <code>Place</code> class method called <code>get_address_components</code> that returns a collection of hash documents with <code>address_components</code> and their associated <code>_id</code>, <code>formatted_address</code> and <code>location</code> properties. Your method must:</p>
+<ul>
+<li>accept optional <code>sort</code>, <code>offset</code>, and <code>limit</code> parameters</li>
+<li>extract all <code>address_component</code> elements within each document contained within the collection (<strong>Hint</strong>: <code>$unwind</code>)</li>
+<li>return only the <code>_id</code>, <code>address_components</code>, <code>formatted_address</code>, and <code>geometry.geolocation</code> elements (Hint: <code>$project</code>)</li>
+<li>apply a provided <code>sort</code> or no sort if not provided (Hint: <code>$sort</code> and <code>q.pipeline</code> method)</li>
+<li>apply a provided <code>offset</code> or no offset if not provided (Hint: <code>$skip</code> and <code>q.pipeline</code> method)</li>
+<li>apply a provided <code>limit</code> or no limit if not provided (Hint: <code>$limit</code> and <code>q.pipeline</code> method)</li>
+<li>return the result of the above query (Hint: <code>collection.find.aggregate(...)</code>)</li>
+</ul>
+<p>You can demonstrate your new class method using the Rails console. Notice how the output has been cut down to just the <code>_id</code>, <code>address_components</code>, <code>formatted_address</code>, and <code>geometry.location</code> elements. Each <code>address_component</code> has been flattened out so that <code>_id</code>, <code>formatted_address</code> and <code>geometry.geolocation</code> elements are repeated for each element in the collection. Apply a different search criteria and paging parameters to adjust the output.</p>
+<p><strong>Note</strong>: In order to mirror similiar results below, it is suggested to restore your <code>places</code> collection by using the <code>load_all</code> call mentioned previously.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; pp <span class="dt">Place</span>.get_address_components({<span class="st">:_id=</span>&gt;-<span class="dv">1</span>}, <span class="dv">200</span>,<span class="dv">3</span>).to_a; <span class="dv">nil</span>
+[{<span class="st">&quot;_id&quot;</span>=&gt;<span class="dt">BSON</span>::<span class="dt">ObjectId</span>(<span class="st">&#39;565299fbe301d03daf000011&#39;</span>),
+  <span class="st">&quot;address_components&quot;</span>=&gt;
+   {<span class="st">&quot;long_name&quot;</span>=&gt;<span class="st">&quot;United Kingdom&quot;</span>,
+    <span class="st">&quot;short_name&quot;</span>=&gt;<span class="st">&quot;GB&quot;</span>,
+    <span class="st">&quot;types&quot;</span>=&gt;[<span class="st">&quot;country&quot;</span>, <span class="st">&quot;political&quot;</span>]},
+  <span class="st">&quot;formatted_address&quot;</span>=&gt;<span class="st">&quot;England, UK&quot;</span>,
+  <span class="st">&quot;geometry&quot;</span>=&gt;
+   {<span class="st">&quot;geolocation&quot;</span>=&gt;
+     {<span class="st">&quot;type&quot;</span>=&gt;<span class="st">&quot;Point&quot;</span>, <span class="st">&quot;coordinates&quot;</span>=&gt;[-<span class="fl">1.1743197</span>, <span class="fl">52.3555177</span>]}}},
+ {<span class="st">&quot;_id&quot;</span>=&gt;<span class="dt">BSON</span>::<span class="dt">ObjectId</span>(<span class="st">&#39;565299fbe301d03daf000010&#39;</span>),
+  <span class="st">&quot;address_components&quot;</span>=&gt;
+   {<span class="st">&quot;long_name&quot;</span>=&gt;<span class="st">&quot;West Yorkshire&quot;</span>,
+    <span class="st">&quot;short_name&quot;</span>=&gt;<span class="st">&quot;West York&quot;</span>,
+    <span class="st">&quot;types&quot;</span>=&gt;[<span class="st">&quot;administrative_area_level_2&quot;</span>, <span class="st">&quot;political&quot;</span>]},
+  <span class="st">&quot;formatted_address&quot;</span>=&gt;<span class="st">&quot;West Yorkshire, UK&quot;</span>,
+  <span class="st">&quot;geometry&quot;</span>=&gt;
+   {<span class="st">&quot;geolocation&quot;</span>=&gt;
+     {<span class="st">&quot;type&quot;</span>=&gt;<span class="st">&quot;Point&quot;</span>, <span class="st">&quot;coordinates&quot;</span>=&gt;[-<span class="fl">1.76261</span>, <span class="fl">53.81081760000001</span>]}}},
+ {<span class="st">&quot;_id&quot;</span>=&gt;<span class="dt">BSON</span>::<span class="dt">ObjectId</span>(<span class="st">&#39;565299fbe301d03daf000010&#39;</span>),
+  <span class="st">&quot;address_components&quot;</span>=&gt;
+   {<span class="st">&quot;long_name&quot;</span>=&gt;<span class="st">&quot;England&quot;</span>,
+    <span class="st">&quot;short_name&quot;</span>=&gt;<span class="st">&quot;England&quot;</span>,
+    <span class="st">&quot;types&quot;</span>=&gt;[<span class="st">&quot;administrative_area_level_1&quot;</span>, <span class="st">&quot;political&quot;</span>]},
+  <span class="st">&quot;formatted_address&quot;</span>=&gt;<span class="st">&quot;West Yorkshire, UK&quot;</span>,
+  <span class="st">&quot;geometry&quot;</span>=&gt;
+   {<span class="st">&quot;geolocation&quot;</span>=&gt;
+     {<span class="st">&quot;type&quot;</span>=&gt;<span class="st">&quot;Point&quot;</span>, <span class="st">&quot;coordinates&quot;</span>=&gt;[-<span class="fl">1.76261</span>, <span class="fl">53.81081760000001</span>]}}}]</code></pre>
+<p>Notice how you should be able to invoke the method and have defaults applied.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; <span class="dt">Place</span>.get_address_components.count
+ =&gt; <span class="dv">141</span> </code></pre>
+<pre class="shell"><code>$ rspec spec/aggregation_spec.rb -e rq01</code></pre></li>
+<li><p>Create a <code>Place</code> class method called <code>get_country_names</code> that returns a distinct collection of country names (<code>long_names</code>). Your method must:</p>
+<ul>
+<li>accept no arguments</li>
+<li>create separate documents for <code>address_components.long_name</code> and <code>address_components.types</code> (Hint: <code>$project</code> and <code>$unwind</code>)</li>
+<li>select only those documents that have a <code>address_components.types</code> element equal to <code>&quot;country&quot;</code> (Hint: <code>$match</code>)</li>
+<li>form a distinct list based on <code>address_components.long_name</code> (Hint: <code>$group</code>)</li>
+<li>return a simple collection of just the country names (<code>long_name</code>). You will have to use application code to do this last step. (Hint: <code>.to_a.map {|h| h[:_id]}</code>)</li>
+</ul>
+<p>You can demonstrate your new class method using the Rails console. Notice how the output is a distinct list of country <code>long_names</code> as stripped down strings in a collection.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; <span class="dt">Place</span>.get_country_names
+ =&gt; [<span class="st">&quot;X X&quot;</span>, <span class="st">&quot;Yy&quot;</span>, <span class="st">&quot;Zz&quot;</span>, <span class="st">&quot;A A&quot;</span>] </code></pre>
+<pre class="shell"><code>$ rspec spec/aggregation_spec.rb -e rq02</code></pre></li>
+<li><p>Create a <code>Place</code> class method called <code>find_ids_by_country_code</code> that will return the <code>id</code> of each document in the <code>places</code> collection that has an <code>address_component.short_name</code> of type <code>country</code> and matches the provided parameter. This method must:</p>
+<ul>
+<li>accept a single <code>country_code</code> parameter</li>
+<li>locate each <code>address_component</code> with a matching <code>short_name</code> being tagged with the <code>country</code> type (Hint: <code>$match</code>)</li>
+<li>return only the <code>_id</code> property from the database (Hint: <code>$project</code>)</li>
+<li>return only a collection of <code>_id</code>s converted to Strings (Hint: <code>.map {|doc| doc[:_id].to_s}</code>)</li>
+</ul>
+<p>You can demonstrate your new class method using the Rails console. Notice how this method can be used to locate a group of primary keys that can be fed back into find. This is an expensive way to implement a <code>find</code> but it may be a necessary implementation when we form links across collections later.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; <span class="dt">Place</span>.find_by_country_code <span class="st">&quot;GB&quot;</span>
+ =&gt; [<span class="st">&quot;56521833e301d0284000003d&quot;</span>, <span class="st">&quot;565218a9e301d02840000069&quot;</span>, ... <span class="st">&quot;565218a9e301d0284000006a&quot;</span>] 
+
+&gt; <span class="dt">Place</span>.find_ids_by_country_code(<span class="st">&quot;GB&quot;</span>).slice(<span class="dv">0</span>,<span class="dv">2</span>).each { |id| puts <span class="dt">Place</span>.find(id).formatted_address}
+  <span class="dt">Wilsden</span>, <span class="dt">West</span> <span class="dt">Yorkshire</span>, <span class="dt">UK</span>
+  <span class="dv">8</span> <span class="dt">Badgergate</span> <span class="dt">Ave</span>, <span class="dt">Wilsden</span>, <span class="dt">Bradford</span>, <span class="dt">West</span> <span class="dt">Yorkshire</span> <span class="dt">BD15</span> 0LJ, <span class="dt">UK</span></code></pre>
+<pre class="shell"><code>$ rspec spec/aggregation_spec.rb -e rq03</code></pre></li>
+</ol>
+<h3 id="geolocation-queries">Geolocation Queries</h3>
+<p>In this section you must create a geolocation index within the <code>places</code> collection and implement a geolocation search that locates <code>place</code>s within tolerances given a geographic point.</p>
+<ol style="list-style-type: decimal">
+<li><p>Create two <code>Place</code> class methods, one called <code>create_indexes</code> and the other <code>remove_indexes</code>. These will be used to create and remove a <code>2dsphere</code> index to your collection for the <code>geometry.geolocation</code> property. These methods must exhibit the following behavior:</p>
+<ul>
+<li><code>create_indexes</code> must make sure the <code>2dsphere</code> index is in place for the <code>geometry.geolocation</code> property (<strong>Hint</strong>: <code>Mongo::Index::GEO2DSPHERE</code>)</li>
+<li><code>remove_indexes</code> must make sure the <code>2dsphere</code> index is removed from the collection (<strong>Hint</strong>: <code>Place.collection.indexes.map {|r| r[:name] }</code> displays the names of each index)</li>
+</ul>
+<p>You can demonstrate your new class methods using the Rails console. The second example below shows how you can locate the name of each index. This name must be used when removing the index.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; <span class="dt">Place</span>.create_indexes
+ =&gt; <span class="co">#&lt;Mongo::Operation::Result:43671200 documents=[{&quot;createdCollectionAutomatically&quot;=&gt;false, </span>
+    <span class="st">&quot;numIndexesBefore&quot;</span>=&gt;<span class="dv">1</span>, <span class="st">&quot;numIndexesAfter&quot;</span>=&gt;<span class="dv">2</span>, <span class="st">&quot;ok&quot;</span>=&gt;<span class="fl">1.0</span>}]&gt; 
+
+&gt; <span class="dt">Place</span>.collection.indexes.map {|r| r[<span class="st">:name</span>] }
+ =&gt; [<span class="st">&quot;_id_&quot;</span>, <span class="st">&quot;geometry.geolocation_2dsphere&quot;</span>] 
+
+&gt; <span class="dt">Place</span>.remove_indexes
+ =&gt; <span class="co">#&lt;Mongo::Operation::Result:43441700 documents=[{&quot;nIndexesWas&quot;=&gt;2, &quot;ok&quot;=&gt;1.0}]&gt; </span></code></pre>
+<pre class="shell"><code>$ rspec spec/geo_spec.rb -e rq01</code></pre></li>
+<li><p>Create a <code>Place</code> class method called <code>near</code> that returns instances of places that are closest to provided <code>Point</code>. This method must:</p>
+<ul>
+<li>accept an input parameter of type <code>Point</code> (created earlier) and an optional <code>max_meters</code> that defaults to no maximum</li>
+<li>performs a <code>$near</code> search using the <code>2dsphere</code> index placed on the <code>geometry.geolocation</code> property and the <code>GeoJSON</code> output of <code>point.to_hash</code> (created earlier). (<strong>Hint</strong>: <a href="https://docs.mongodb.org/manual/tutorial/query-a-2dsphere-index/"><code>Query a 2dsphere Index</code></a>)</li>
+<li>limits the maximum distance -- if provided -- in determining matches (<strong>Hint</strong>: <code>$maxDistance</code>)</li>
+<li>returns the resulting view</li>
+</ul>
+<p>You can demonstrate your new class methods using the Rails console. You can use one of a number of queries to locate a specific document within the <code>places</code> collection and then create a <code>Place</code> instance to represent that document.</p>
+<p><strong>Note</strong>: You may need to re-invoke <code>create_indexes</code> prior to executing this find, given the previous step demonstrated <code>remove_index</code></p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; pa_doc=<span class="dt">Place</span>.find_by_short_name(<span class="st">&quot;PA&quot;</span>).first
+&gt; pa_place=<span class="dt">Place</span>.new(pa_doc)</code></pre>
+<p><code>place</code> encapsulates a <code>location</code> object of type <code>Point</code> which has a <code>to_hash</code> method added to it (we did this earlier) that generates a hash in <code>GeoJSON Point</code> format.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; pa_point=pa_place.location
+ =&gt; <span class="co">#&lt;Point:0x000000036aff10 @latitude=39.874572, @longitude=-75.56709699999999&gt; </span>
+&gt; pa_point.to_hash
+ =&gt; {<span class="st">:type=</span>&gt;<span class="st">&quot;Point&quot;</span>, <span class="st">:coordinates=</span>&gt;[-<span class="fl">75.56709699999999</span>, <span class="fl">39.874572</span>]} </code></pre>
+<p><code>point</code> can be used to locate other places nearby using an optional maximum distance threshold measured in meters (There are 1609.4 meters in a mile). The <code>to_places</code> method can be used to convert the collection of matching documents to a collection of <code>Place</code> instances.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; pa_near=<span class="dt">Place</span>.to_places(<span class="dt">Place</span>.near(pa_point, <span class="dv">10</span>*<span class="fl">1609.4</span>))</code></pre>
+<p>The collection of near <code>Place</code>s can be iterated over and properties printed to gain insight into which places are closer than others.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; pa_near.each { |place| p place.formatted_address }; <span class="dv">nil</span>
+<span class="st">&quot;1399 Baltimore Pike, Chadds Ford, PA 19317, USA&quot;</span>
+<span class="st">&quot;Chadds Ford, PA, USA&quot;</span>
+<span class="st">&quot;Chadds Ford, PA 19317, USA&quot;</span>
+<span class="st">&quot;Delaware County, PA, USA&quot;</span></code></pre>
+<pre class="shell"><code>$ rspec spec/geo_spec.rb -e rq02</code></pre></li>
+<li><p>Create an instance method (also) called <code>near</code> that wraps the class method you just finished. This method must:</p>
+<ul>
+<li>accept an optional parameter that sets a maximum distance threshold in meters</li>
+<li>locate all <code>places</code> within the specified maximum distance threshold</li>
+<li>return the collection of matching documents as a collection of <code>Place</code> instances using the <code>to_places</code> class method added earlier.</li>
+</ul>
+<p>You can demonstrate your new class methods using the Rails console. Once you have an instance of a <code>Place</code>, it should be very easy to locate other places near it.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; pa_place.near(<span class="dv">10</span>*<span class="fl">1609.4</span>).each {|r| p r.formatted_address }; <span class="dv">nil</span>
+<span class="st">&quot;1399 Baltimore Pike, Chadds Ford, PA 19317, USA&quot;</span>
+<span class="st">&quot;Chadds Ford, PA, USA&quot;</span>
+<span class="st">&quot;Chadds Ford, PA 19317, USA&quot;</span>
+<span class="st">&quot;Delaware County, PA, USA&quot;</span></code></pre>
+<pre class="shell"><code>$ rspec spec/geo_spec.rb -e rq03</code></pre></li>
+</ol>
+<h3 id="photos">Photos</h3>
+<p>In this section you must implement a model class called <code>Photo</code>. The purpose of this model class is to encapsulate all information and content access to a photograph. This model uses <a href="https://docs.mongodb.org/manual/core/gridfs/"><code>GridFS</code></a> -- rather than a usual MongoDB collection like <code>places</code> since there will be an information aspect and a raw data aspect to this model type. This model class will also be responsible for extracting geolocation coordinates from each <code>photo</code> and locating the nearest <code>place</code> (within distance tolerances) to where that <code>photo</code> was taken. To simplify the inspection of the photo image data, all photos handled by this model class will be assumed to be <code>jpeg</code> images. You may use the [<code>exifr gem</code>] (https://rubygems.org/gems/exifr/) to extract available geographic coordinates from each <code>photo</code>.</p>
+<ol style="list-style-type: decimal">
+<li><p>Create a model class called <code>Photo</code>. Since the storage for this class is primarily within GridFS, there is no need for a <code>collection</code> method. This class must:</p>
+<ul>
+<li>provide a class method called <code>mongo_client</code> that returns a MongoDB Client from Mongoid referencing the default database from the <code>config/mongoid.yml</code> file (<strong>Hint</strong>: <code>Mongoid::Clients.default</code>)</li>
+</ul>
+<p>You can demonstrate your new model class and methods using the Rails console.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; <span class="dt">Photo</span>.mongo_client
+ =&gt; <span class="co">#&lt;Mongo::Client:0x44048040 cluster=localhost:27017&gt; </span></code></pre>
+<pre class="shell"><code>$ rspec spec/photos_spec.rb -e rq01</code></pre></li>
+<li><p>Implement the following attributes in the <code>Photo</code> class</p>
+<ul>
+<li>a read/write attribute called <code>id</code> that will be of type <code>String</code> to hold the String form of the GridFS file <code>_id</code> attribute</li>
+<li>a read/write attribute called <code>location</code> that will be of type <code>Point</code> to hold the location information of where the photo was taken.</li>
+<li>a write-only (for now) attribute called <code>contents</code> that will be used to import and access the raw data of the photo. This will have varying data types depending on context.</li>
+</ul>
+<p>You can demonstrate your new model attributes and access methods using the Rails console. Notice that we initialized <code>contents</code> to be an <code>IO</code> (<code>File</code>) object that can be read from and is not the data itself. This will become important later.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; place=<span class="dt">Place</span>.all.first
+&gt; f=<span class="dt">File</span>.open(<span class="st">&#39;./db/image1.jpg&#39;</span>)
+&gt; photo = <span class="dt">Photo</span>.new
+&gt; photo.location = place.location
+&gt; photo.contents = f
+&gt; pp photo
+ <span class="co">#&lt;Photo:0x000000070a2150</span>
+ <span class="ot">@contents</span>=<span class="co">#&lt;File:./db/image1.jpg&gt;,</span>
+ <span class="ot">@location</span>=
+  <span class="co">#&lt;Point:0x00000006ec97c0 @latitude=33.875467, @longitude=-116.3016158&gt;&gt;</span></code></pre>
+<pre class="shell"><code>$ rspec spec/photos_spec.rb -e rq02</code></pre></li>
+<li><p>Add an <code>initialize</code> method in the <code>Photo</code> class that can be used to initialize the instance attributes of <code>Photo</code> from the hash returned from queries like <code>mongo_client.database.fs.find</code>. This method must</p>
+<ul>
+<li>initialize <code>@id</code> to the string form of <code>_id</code> and <code>@location</code> to the <code>Point</code> form of <code>metadata.location</code> if these exist. The document hash is likely coming from query results coming from <code>mongo_client.database.fs.find</code>.</li>
+<li>create a default instance if no hash is present</li>
+</ul>
+<p>You can demonstrate your new method using the Rails console. In the first set of commands the default initialize is being called and then the location is being set to a new <code>Point</code> instance.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; photo=<span class="dt">Photo</span>.new
+ =&gt; <span class="co">#&lt;Photo:0x000000062119d8&gt; </span>
+
+&gt; photo.location=<span class="dt">Point</span>.new(<span class="st">:type=</span>&gt;<span class="st">&quot;Point&quot;</span>, <span class="st">:coordinates=</span>&gt;[-<span class="fl">116.30161960177952</span>, <span class="fl">33.87546081542969</span>])
+ =&gt; <span class="co">#&lt;Point:0x00000006193290 @longitude=-116.30161960177952, @latitude=33.87546081542969&gt; </span></code></pre>
+<p>In the second set of commands, the file information for a GridFS file is retrieved using a <code>find</code> command and directly used to initialize the instance.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; doc=<span class="dt">Photo</span>.mongo_client.database.fs.find.first
+  {<span class="st">&quot;_id&quot;</span>=&gt;<span class="dt">BSON</span>::<span class="dt">ObjectId</span>(<span class="st">&#39;5652d94de301d0c0ad000001&#39;</span>), 
+   <span class="st">&quot;chunkSize&quot;</span>=&gt;<span class="dv">261120</span>, 
+   <span class="st">&quot;uploadDate&quot;</span>=&gt;<span class="dv">2015-11-23</span> <span class="dv">09</span>:<span class="dv">15</span>:<span class="dv">57</span> <span class="dt">UTC</span>, 
+   <span class="st">&quot;contentType&quot;</span>=&gt;<span class="st">&quot;binary/octet-stream&quot;</span>, 
+   <span class="st">&quot;metadata&quot;</span>=&gt;{<span class="st">&quot;location&quot;</span>=&gt;{<span class="st">&quot;type&quot;</span>=&gt;<span class="st">&quot;Point&quot;</span>, <span class="st">&quot;coordinates&quot;</span>=&gt;[-<span class="fl">116.30161960177952</span>, <span class="fl">33.87546081542969</span>]}}, 
+   <span class="st">&quot;length&quot;</span>=&gt;<span class="dv">601685</span>, 
+   <span class="st">&quot;md5&quot;</span>=&gt;<span class="st">&quot;871666ee99b90e51c69af02f77f021aa&quot;</span>} 
+
+&gt; photo=<span class="dt">Photo</span>.new doc
+ =&gt; <span class="co">#&lt;Photo:0x000000060fcd18 </span>
+   <span class="ot">@location</span>=<span class="co">#&lt;Point:0x000000060fc8b8 @longitude=-116.30161960177952, @latitude=33.87546081542969&gt;, </span>
+   <span class="ot">@id</span>=<span class="st">&quot;5652d94de301d0c0ad000001&quot;</span>&gt; </code></pre>
+<pre class="shell"><code>$ rspec spec/photos_spec.rb -e rq03</code></pre></li>
+<li><p>Add an instance method to the <code>Photo</code> class called <code>persisted?</code> to return true if the instance has been created within GridFS. This method must:</p>
+<ul>
+<li>take no arguments</li>
+<li>return true if the <code>photo</code> instance has been stored to GridFS (<strong>Hint</strong>: <code>@id.nil?</code>)</li>
+</ul>
+<p>You can demonstrate your new method using the Rails console as a part of implementing the next requirement (<code>save</code>).</p></li>
+<li><p>Add an instance method to the <code>Photo</code> class called <code>save</code> to store a new instance into GridFS. This method must:</p>
+<ul>
+<li>check whether the instance is already persisted and do nothing (for now) if already persisted (<strong>Hint</strong>: use your new <code>persisted?</code> method to determine if your instance has been persisted)</li>
+<li>use the <code>exifr</code> gem to extract geolocation information from the <code>jpeg</code> image.</li>
+<li>store the content type of <code>image/jpeg</code> in the <code>GridFS</code> <code>contentType</code> file property.</li>
+<li>store the <code>GeoJSON Point</code> format of the image location in the <code>GridFS</code> <code>metadata</code> file property and the object in class' <code>location</code> property.</li>
+<li>store the data contents in <code>GridFS</code></li>
+<li>store the generated <code>_id</code> for the file in the <code>:id</code> property of the <code>Photo</code> model instance.</li>
+</ul>
+<p>Lets take a quick look at the <a href="https://github.com/remvee/exifr/"><code>exfir</code></a> gem. The <code>EXIFR::JPEG</code> <code>initialize</code> method can read the contents of a file and further provide the geolocation information through the call to <code>gps</code></p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; f = <span class="dt">File</span>.open(<span class="st">&#39;./db/image1.jpg&#39;</span>)
+ =&gt; <span class="co">#&lt;File:./db/image1.jpg&gt; </span>
+
+&gt; gps=<span class="dt">EXIFR</span>::<span class="dt">JPEG</span>.new(f).gps
+ =&gt; <span class="co">#&lt;struct EXIFR::TIFF::GPS latitude=33.87546081542969, longitude=-116.30161960177952, ...</span></code></pre>
+<p>The <code>gps</code> object can then be inspected for <code>latitude</code> and <code>longitude</code> properties that can be used to instantiate the <code>Point</code> class we have created for this assignment. The <code>Point</code> class can produce a location in <code>GeoJSON Point</code> format. This can be stored in the <code>metadata</code> properties of the file using the <code>location</code> property.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; location=<span class="dt">Point</span>.new(<span class="st">:lng=</span>&gt;gps.longitude, <span class="st">:lat=</span>&gt;gps.latitude)
+ =&gt; <span class="co">#&lt;Point:0x00000006731210 @latitude=33.87546081542969, @longitude=-116.30161960177952&gt; </span>
+
+&gt; location.to_hash
+ =&gt; {<span class="st">:type=</span>&gt;<span class="st">&quot;Point&quot;</span>, <span class="st">:coordinates=</span>&gt;[-<span class="fl">116.30161960177952</span>, <span class="fl">33.87546081542969</span>]} </code></pre>
+<p>Note that the file reference can be reset to re-read for saving the data bytes to GridFS.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; f.rewind
+ =&gt; <span class="dv">0</span> </code></pre>
+<p>You can demonstrate your new <code>save</code> method using the Rails console.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; f = <span class="dt">File</span>.open(<span class="st">&#39;./db/image1.jpg&#39;</span>)
+ =&gt; <span class="co">#&lt;File:./db/image1.jpg&gt; </span>
+&gt; photo=<span class="dt">Photo</span>.new
+ =&gt; <span class="co">#&lt;Photo:0x00000005fb4690&gt; </span>
+&gt; photo.contents = f
+ =&gt; <span class="co">#&lt;File:./db/image1.jpg&gt; </span>
+&gt; id=photo.save
+ =&gt; <span class="st">&quot;5652df83e301d0c0ad00000d&quot;</span> 
+&gt; photo.location
+ =&gt; <span class="co">#&lt;Point:0x00000005ed32a8 @latitude=33.87546081542969, @longitude=-116.30161960177952&gt; </span></code></pre>
+<pre class="shell"><code>$ rspec spec/photos_spec.rb -e rq04</code></pre></li>
+<li><p>Add a class method to the <code>Photo</code> class called <code>all</code>. This method must:</p>
+<ul>
+<li>accept an optional set of arguments for skipping into and limiting the results of a search</li>
+<li>default the offset (<strong>Hint</strong>: <code>skip</code>) to 0 and the limit to unlimited</li>
+<li>return a collection of <code>Photo</code> instances representing each file returned from the database (<strong>Hint</strong>: <code>...find.map {|doc| Photo.new(doc) }</code>)</li>
+</ul>
+<p>You can demonstrate your new method using the Rails console. By supplying no arguments, we are able to access all documents in the collection. When we add the first parameter (<code>offset</code>), we skip that number of documents in the collection. When we add the second parameter (<code>limit</code>), we constrain the results to a limit of documents. Notice the method returns instances of <code>Photo</code>.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; <span class="dt">Photo</span>.all.count
+ =&gt; <span class="dv">4</span> 
+&gt; <span class="dt">Photo</span>.all(<span class="dv">1</span>).count
+ =&gt; <span class="dv">3</span> 
+&gt; <span class="dt">Photo</span>.all(<span class="dv">1</span>,<span class="dv">2</span>).count
+ =&gt; <span class="dv">2</span> 
+&gt; pp <span class="dt">Photo</span>.all(<span class="dv">1</span>,<span class="dv">2</span>).first
+<span class="co">#&lt;Photo:0x000000067baf38</span>
+ <span class="ot">@id</span>=<span class="st">&quot;5652df09e301d0c0ad000005&quot;</span>,
+ <span class="ot">@location</span>=
+  <span class="co">#&lt;Point:0x000000067bac90</span>
+   <span class="ot">@latitude</span>=<span class="fl">33.87546081542969</span>,
+   <span class="ot">@longitude</span>=-<span class="fl">116.30161960177952</span>&gt;&gt;</code></pre>
+<pre class="shell"><code>$ rspec spec/photos_spec.rb -e rq06</code></pre></li>
+<li><p>Create a class method called <code>find</code> that will return an instance of a <code>Photo</code> based on the input <code>id</code>. This method must:</p>
+<ul>
+<li>accept a single String parameter for the <code>id</code></li>
+<li>locate the file associated with the <code>id</code> by converting it back to a <code>BSON::ObjectId</code> and using in an <code>:_id</code> query.</li>
+<li>set the values of <code>id</code> and <code>location</code> witin the model class based on the properties returned from the query.</li>
+<li>return an instance of the <code>Photo</code> model class</li>
+</ul>
+<p><strong>Hint</strong>: You can use the following example as a guide to how you may locate the file info.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; pp <span class="dt">Photo</span>.mongo_client.database.fs.find(<span class="st">:_id=</span>&gt;<span class="dt">BSON</span>::<span class="dt">ObjectId</span>.from_string(id)).first
+{<span class="st">&quot;_id&quot;</span>=&gt;<span class="dt">BSON</span>::<span class="dt">ObjectId</span>(<span class="st">&#39;5652df83e301d0c0ad00000d&#39;</span>),
+ <span class="st">&quot;chunkSize&quot;</span>=&gt;<span class="dv">261120</span>,
+ <span class="st">&quot;uploadDate&quot;</span>=&gt;<span class="dv">2015-11-23</span> <span class="dv">09</span>:<span class="dv">42</span>:<span class="dv">27</span> <span class="dt">UTC</span>,
+ <span class="st">&quot;contentType&quot;</span>=&gt;<span class="st">&quot;binary/octet-stream&quot;</span>,
+ <span class="st">&quot;metadata&quot;</span>=&gt;
+  {<span class="st">&quot;location&quot;</span>=&gt;
+    {<span class="st">&quot;type&quot;</span>=&gt;<span class="st">&quot;Point&quot;</span>,
+     <span class="st">&quot;coordinates&quot;</span>=&gt;[-<span class="fl">116.30161960177952</span>, <span class="fl">33.87546081542969</span>]}},
+ <span class="st">&quot;length&quot;</span>=&gt;<span class="dv">601685</span>,
+ <span class="st">&quot;md5&quot;</span>=&gt;<span class="st">&quot;871666ee99b90e51c69af02f77f021aa&quot;</span>}</code></pre>
+<p>You can demonstrate your new <code>find</code> method using the Rails console.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; photo=<span class="dt">Photo</span>.find id
+ =&gt; <span class="co">#&lt;Photo:0x0000000426a378 @id=&quot;5652df83e301d0c0ad00000d&quot;, </span>
+    <span class="ot">@location</span>=<span class="co">#&lt;Point:0x0000000423ab28 @longitude=-116.30161960177952, @latitude=33.87546081542969&gt;&gt; </span>
+&gt; photo.location
+ =&gt; <span class="co">#&lt;Point:0x0000000423ab28 @longitude=-116.30161960177952, @latitude=33.87546081542969&gt;</span></code></pre>
+<pre class="shell"><code>$ rspec spec/photos_spec.rb -e rq07</code></pre></li>
+<li><p>Create a custom getter for <code>contents</code> that will return the data contents of the file. This method must:</p>
+<ul>
+<li>accept no arguments</li>
+<li>read the data contents from GridFS for the associated file</li>
+<li>return the data bytes</li>
+</ul>
+<p>You can demonstrate your new custom getter method for <code>contents</code> using the Rails console.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; f=<span class="dt">File</span>.open(<span class="st">&#39;test.jpg&#39;</span>,<span class="st">&#39;wb&#39;</span>)
+ =&gt; <span class="co">#&lt;File:test.jpg&gt; </span>
+&gt; f.write(photo.contents)
+ =&gt; <span class="dv">624744</span> </code></pre>
+<p>After writing the contents of the file accessed from GridFS onto the file system, the size of the two file should be the same and you should be able to see the same image as the original.</p>
+<pre class="shell"><code>$ ls -l test.jpg db/image1.jpg 
+... 624744 Nov 23 03:26 db/image1.jpg
+... 624744 Nov 23 05:18 test.jpg</code></pre>
+<pre class="shell"><code>$ rspec spec/photos_spec.rb -e rq08</code></pre></li>
+<li><p>Add an instance method called <code>destroy</code> to the <code>Photo</code> class that will delete the file and contents associated with the ID of the object instance. This method must:</p>
+<ul>
+<li>accept no arguments</li>
+<li>delete the file and its contents from GridFS</li>
+</ul>
+<p>You can demonstrate your new method using the Rails console. We will start out by creating a new Photo from a file, saving the contents, and verifying we can locate the <code>Photo</code> by calling <code>find</code> on the ID.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; photo=<span class="dt">Photo</span>.new
+&gt; photo.contents=<span class="dt">File</span>.open(<span class="st">&#39;./db/image1.jpg&#39;</span>)
+ =&gt; <span class="co">#&lt;File:./db/image1.jpg&gt; </span>
+&gt; photo.save
+ =&gt; <span class="st">&quot;565515efe301d0c0ad000015&quot;</span> 
+&gt; <span class="dt">Photo</span>.find(photo.id)
+ =&gt; <span class="co">#&lt;Photo:0x000000046b25c0 @location=#&lt;Point:0x000000046b1df0 ...</span></code></pre>
+<p>We then can call destroy and use <code>find</code> again to verify the file can no longer be located in GridFS.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; photo.destroy
+ =&gt; <span class="co">#&lt;Mongo::Operation::Result:36999680 documents=[{&quot;ok&quot;=&gt;1, &quot;n&quot;=&gt;1}]&gt; </span>
+&gt; <span class="dt">Photo</span>.find(photo.id)
+ =&gt; <span class="dv">nil</span> </code></pre>
+<p>Of course, if you ever want to clean up and start over with a fresh set of <code>Photo</code>s, you can leverage your <code>all</code> and <code>destroy</code> method together.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; <span class="dt">Photo</span>.all.each {|photo| photo.destroy }</code></pre>
+<pre class="shell"><code>$ rspec spec/photos_spec.rb -e rq09</code></pre></li>
+</ol>
+<h3 id="relationships">Relationships</h3>
+<p>In this section you must implement a <code>many-to-one</code> relationship from <code>Photo</code> to <code>Place</code>. A foreign key to the <code>place</code> will be inserted into the <code>photo</code> information to realize this relationship and navigation must be bi-directional (i.e., <code>photo.place</code> and <code>place.photos</code>). We will also select which relationships to form based on distance a <code>place</code> is from where the <code>photo</code> was taken.</p>
+<ol style="list-style-type: decimal">
+<li><p>Create a <code>Place</code> helper instance method called <code>find_nearest_place_id</code> that will return the <code>_id</code> of the document within the <code>places</code> collection. This <code>place</code> document must be within a specified distance threshold of where the photo was taken. This method must:</p>
+<ul>
+<li>accept a maximum distance in meters</li>
+<li>uses the <code>near</code> class method in the <code>Place</code> model and its location to locate places within a maximum distance of where the photo was taken.</li>
+<li>limit the result to only the nearest matching place (<strong>Hint</strong>: <code>limit()</code>)</li>
+<li>limit the result to only the <code>_id</code> of the matching place document (<strong>Hint</strong>: <code>projection()</code>)</li>
+<li>returns zero or one <code>BSON::ObjectId</code>s for the nearby place found</li>
+</ul>
+<p>You can demonstrate your new method using the Rails console. We first use the <code>all</code> class method written earlier to locate a sample photo and verify it has a location.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; photo=<span class="dt">Photo</span>.all.first
+&gt; photo.location
+ =&gt; <span class="co">#&lt;Point:0x000000065dbbe0 @longitude=-116.30161960177952, @latitude=33.87546081542969&gt; </span></code></pre>
+<p>We then use the new method added here to locate the closest place to the photo within one (1) mile (1609.34 meters/mile).</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; photo.find_nearest_place_id(<span class="dv">1</span>*<span class="fl">1609.34</span>)
+ =&gt; <span class="dt">BSON</span>::<span class="dt">ObjectId</span>(<span class="st">&#39;5652b509e301d03daf000075&#39;</span>) </code></pre>
+<p>We can then use the returned <code>ID</code> to inspect the place located.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; place=<span class="dt">Place</span>.find <span class="st">&quot;5652b509e301d03daf000075&quot;</span>
+&gt; place.location
+ =&gt; <span class="co">#&lt;Point:0x000000065a8d30 @longitude=-116.3016158, @latitude=33.875467&gt; </span>
+
+&gt; place.formatted_address
+ =&gt; <span class="st">&quot;77713-77735 Dillon Rd, Desert Hot Springs, CA 92241, USA&quot;</span> </code></pre>
+<pre class="shell"><code>$ rspec spec/rel_spec.rb -e rq01</code></pre></li>
+<li><p>Update the logic within the existing <code>save</code> instance method to update the file properties when called on a persisted instance. Previously, the method only handled a new <code>Photo</code> instance that was yet persisted. This method must:</p>
+<ul>
+<li>accept no inputs</li>
+<li>if the instance is not yet persisted, perform the existing logic to add the file to GridFS</li>
+<li>if the instance is already persisted (Hint: <code>persisted?</code> helper method added earlier) update the file info (Hint: <code>find(...).update_one(...)</code>)</li>
+</ul>
+<p>You can demonstrate your new method using the Rails console. In the first set of methods we get a reference to a sample photo and print the current location.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; photo=<span class="dt">Photo</span>.all.first
+&gt; photo.location
+ =&gt; <span class="co">#&lt;Point:0x00000005e48928 @longitude=-116.3016158, @latitude=33.875467&gt; </span></code></pre>
+<p>In the next block of commands we set the <code>location</code> to a new <code>Point</code> and call the new <code>save</code> behavior on the photo instance. Since the instance has already been persisted, an update to GridFS id done for the file info properties. We verify the update was performed by retrieving a new instance from the database using our <code>find</code> method in the model class.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; photo.location=<span class="dt">Point</span>.new(<span class="st">:type=</span>&gt;<span class="st">&quot;Point&quot;</span>, <span class="st">:coordinates=</span>&gt;[-<span class="fl">116.0000000</span>,<span class="fl">33.000000</span>])
+ =&gt; <span class="co">#&lt;Point:0x00000005de2ad8 @longitude=-116.0, @latitude=33.0&gt; </span>
+&gt; photo.save
+ =&gt; <span class="co">#&lt;Mongo::Operation::Result:49114080 documents=[{&quot;ok&quot;=&gt;1, &quot;nModified&quot;=&gt;1, &quot;n&quot;=&gt;1}]&gt; </span>
+&gt; <span class="dt">Photo</span>.find(photo.id).location
+ =&gt; <span class="co">#&lt;Point:0x00000005d64958 @longitude=-116.0, @latitude=33.0&gt; </span></code></pre>
+<p>This last block of commands repeats the above to put the previous <code>location</code> back in place.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; photo.location=<span class="dt">Point</span>.new(<span class="st">:type=</span>&gt;<span class="st">&quot;Point&quot;</span>, <span class="st">:coordinates=</span>&gt;[-<span class="fl">116.3016158</span>,<span class="fl">33.875467</span>])
+ =&gt; <span class="co">#&lt;Point:0x00000005d1ba28 @longitude=-116.3016158, @latitude=33.875467&gt; </span>
+&gt; photo.save
+ =&gt; <span class="co">#&lt;Mongo::Operation::Result:48676360 documents=[{&quot;ok&quot;=&gt;1, &quot;nModified&quot;=&gt;1, &quot;n&quot;=&gt;1}]&gt; </span>
+&gt; <span class="dt">Photo</span>.find(photo.id).location
+ =&gt; <span class="co">#&lt;Point:0x0000000577ca18 @longitude=-116.3016158, @latitude=33.875467&gt; </span></code></pre>
+<p>Note: You should likely also re-test that the insert logic for <code>save</code> still works for instances that have not yet been persisted.</p>
+<pre class="shell"><code>$ rspec spec/rel_spec.rb -e rq02</code></pre></li>
+<li><p>We will be adding to <code>Photo</code> the functionality to support a relationship with <code>Place</code>. Add a new <code>place</code> attribute in the <code>Photo</code> class to be used to realize a <code>Many-to-One</code> relationship between <code>Photo</code> and <code>Place</code>. The <code>Photo</code> class must:</p>
+<ul>
+<li>add support for a <code>place</code> instance attribute in the model class. You will be implementing a custom setter/getter for this attribute</li>
+<li>store this new property within the file metadata (<code>metadata.place</code>)</li>
+<li>update the <code>initialize</code> method to cache the contents of <code>metadata.place</code> in an instance attribute called <code>@place</code></li>
+<li>update the <code>save</code> method to include the <code>@place</code> and <code>@location</code> properties under the parent <code>metadata</code> property in the file info.</li>
+<li>add a custom getter for <code>place</code> that will find and return a <code>Place</code> instance that represents the stored ID (<strong>Hint</strong>: <code>Place.find</code>)</li>
+<li>add a custom setter that will update the <code>place</code> ID by accepting a <code>BSON::ObjectId</code></li>
+</ul>
+<p>You can demonstrate your new method using the Rails console. We first use the <code>all</code> to obtain a sample photo and show that it does not yet have a place.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; photo=<span class="dt">Photo</span>.all.first
+&gt; photo.place
+ =&gt; <span class="dv">nil</span> </code></pre>
+<p>We then find the <code>BSON::ObjectId</code> for the nearest location and assign that to the <code>photo.place</code> and inspect the Photo state attributes to find the stored <code>BSON::ObjectId</code> in the <code>place</code> attribute. We then can get an instance of the <code>Place</code> by calling <code>photo.place</code>.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; place_id=photo.find_nearest_place_id(<span class="dv">1</span>*<span class="fl">1609.34</span>)
+ =&gt; <span class="dt">BSON</span>::<span class="dt">ObjectId</span>(<span class="st">&#39;5652b509e301d03daf000075&#39;</span>) 
+&gt; photo.place=place_id
+ =&gt; <span class="dt">BSON</span>::<span class="dt">ObjectId</span>(<span class="st">&#39;5652b509e301d03daf000075&#39;</span>) 
+&gt; photo
+ =&gt; <span class="co">#&lt;Photo:0x00000006728368 </span>
+    <span class="ot">@id</span>=<span class="st">&quot;5652d94de301d0c0ad000001&quot;</span>, 
+    ...
+    <span class="ot">@place</span>=<span class="dt">BSON</span>::<span class="dt">ObjectId</span>(<span class="st">&#39;5652b509e301d03daf000075&#39;</span>)&gt; </code></pre>
+<p>We then can save the <code>place</code> ID to the database to form the relationship between <code>Photo</code> and <code>Place</code>. We can verify the information was saved to the database by getting a fresh copy of the <code>Photo</code> instance using the <code>Photo.find</code> model method we added that locates a photo by <code>id</code>.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; photo.save
+ =&gt; <span class="co">#&lt;Mongo::Operation::Result:53897660 documents=[{&quot;ok&quot;=&gt;1, &quot;nModified&quot;=&gt;1, &quot;n&quot;=&gt;1}]&gt; </span>
+&gt; <span class="dt">Photo</span>.find(photo.id).place.formatted_address
+ =&gt; <span class="st">&quot;77713-77735 Dillon Rd, Desert Hot Springs, CA 92241, USA&quot;</span> </code></pre>
+<p>We can delete the relationship by assigning the <code>place</code> property to <code>nil</code> and saving the change to the database. We can again verify the database state using the <code>find</code> method to retrieve a new instance of that <code>Photo</code>.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; photo.place=<span class="dv">nil</span>
+ =&gt; <span class="dv">nil</span> 
+&gt; photo.save
+ =&gt; <span class="co">#&lt;Mongo::Operation::Result:53713540 documents=[{&quot;ok&quot;=&gt;1, &quot;nModified&quot;=&gt;1, &quot;n&quot;=&gt;1}]&gt; </span>
+&gt; <span class="dt">Photo</span>.find(photo.id).place
+ =&gt; <span class="dv">nil</span> </code></pre>
+<p>(optional) If you want, you can extend the requirements to make the assignment work for <code>String</code> and actual <code>Place</code> objects. In these two cases we constructed a <code>BSON::ObjectId</code> from what was passed in. This will require your custom <code>place</code> setter method to check the type of what is being passed in and form the necessary <code>BSON::ObjectId</code> from the information provided by that type.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; photo.place=<span class="st">&#39;5652b509e301d03daf000075&#39;</span>
+ =&gt; <span class="st">&quot;5652b509e301d03daf000075&quot;</span> 
+&gt; photo.place.formatted_address
+ =&gt; <span class="st">&quot;77713-77735 Dillon Rd, Desert Hot Springs, CA 92241, USA&quot;</span> 
+&gt; photo.place=<span class="dv">nil</span>
+&gt; photo.place=place
+&gt; photo
+ =&gt; <span class="co">#&lt;Photo:0x0000000598d758 </span>
+    <span class="ot">@id</span>=<span class="st">&quot;5652d94de301d0c0ad000001&quot;</span>, 
+    ...
+    <span class="ot">@place</span>=<span class="dv">nil</span>&gt; </code></pre>
+<pre class="shell"><code>$ rspec spec/rel_spec.rb -e rq03</code></pre></li>
+<li><p>Add a class method called <code>find_photos_for_place</code> that accepts the <code>BSON::ObjectId</code> of a <code>Place</code> and returns a collection view of photo documents that have the foreign key reference. This method must:</p>
+<ul>
+<li>accept the ID of a <code>place</code> in either <code>BSON::ObjectId</code> or <code>String</code> ID form (Hint: <code>BSON::ObjectId.from_string(place_id.to_s</code>)</li>
+<li>find GridFS file documents with the <code>BSON::ObjectId</code> form of that ID in the <code>metadata.place</code> property.</li>
+<li>return the result view</li>
+</ul>
+<p>You can demonstrate your new method using the Rails console. We first clear our database of all photos using <code>all</code> and <code>destroy</code>, ingest new file contents using <code>save</code>, and update the document with the foreign key using <code>all</code> and <code>save</code>. We could have saved a trip to the database by assigning <code>place</code> within the first block but the command was getting a little long to fit on a single line within this document.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; <span class="dt">Photo</span>.all.each {|photo| photo.destroy }
+&gt; <span class="dv">5</span>.times {photo=<span class="dt">Photo</span>.new; photo.contents=<span class="dt">File</span>.open(<span class="st">&#39;./db/image1.jpg&#39;</span>); photo.save}
+&gt; place=<span class="dt">Place</span>.all.first
+&gt; <span class="dt">Photo</span>.all.each {|photo| photo.place=place; photo.save}</code></pre>
+<p>We can now use our new method to obtain all <code>photo</code> documents that have the requested foreign key stored in their document. We placed the query on this side of the relationship so that <code>Place</code> did not have to know the details of <code>Photo</code></p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; <span class="dt">Photo</span>.find_photos_for_place(place.id).map {|r| r[<span class="st">:_id</span>] }
+ =&gt; [<span class="dt">BSON</span>::<span class="dt">ObjectId</span>(<span class="st">&#39;56551a82e301d0c0ad000019&#39;</span>), 
+     <span class="dt">BSON</span>::<span class="dt">ObjectId</span>(<span class="st">&#39;56551a82e301d0c0ad00001d&#39;</span>), 
+     <span class="dt">BSON</span>::<span class="dt">ObjectId</span>(<span class="st">&#39;56551a83e301d0c0ad000021&#39;</span>), 
+     <span class="dt">BSON</span>::<span class="dt">ObjectId</span>(<span class="st">&#39;56551a83e301d0c0ad000025&#39;</span>), 
+     <span class="dt">BSON</span>::<span class="dt">ObjectId</span>(<span class="st">&#39;56551a83e301d0c0ad000029&#39;</span>)] </code></pre>
+<p>Note that because the <code>find_photos_for_place</code> method returns the query view and not a completed result, the caller can apply paging properties to the collection returned.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; <span class="dt">Photo</span>.find_photos_for_place(place.id).skip(<span class="dv">3</span>).limit(<span class="dv">3</span>).map {|r| r[<span class="st">:_id</span>] }
+ =&gt; [<span class="dt">BSON</span>::<span class="dt">ObjectId</span>(<span class="st">&#39;56551a83e301d0c0ad000025&#39;</span>), 
+     <span class="dt">BSON</span>::<span class="dt">ObjectId</span>(<span class="st">&#39;56551a83e301d0c0ad000029&#39;</span>)] </code></pre>
+<pre class="shell"><code>$ rspec spec/rel_spec.rb -e rq04</code></pre></li>
+<li><p>Add a new instance method called <code>photos</code> to the <code>Place</code> model class. This method will return a collection of <code>Photos</code> that have been associated with the place. This method must:</p>
+<ul>
+<li>accept an optional set of arguments (<code>offset</code>, and <code>limit</code>) to skip into and limit the result set. The offset should default to <code>0</code> and the limit should default to unbounded.</li>
+</ul>
+<p>You can demonstrate your new method using the Rails console.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; place=<span class="dt">Photo</span>.all.first.place
+&gt; place.photos.count
+ =&gt; <span class="dv">5</span> </code></pre>
+<p>Note that because we have implemented paging within the getter, we now page through an unbounded set of photos for a place.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; pp place.photos(<span class="dv">2</span>,<span class="dv">1</span>).first
+<span class="co">#&lt;Photo:0x0000000681d4f8</span>
+ <span class="ot">@id</span>=<span class="st">&quot;56551a83e301d0c0ad000021&quot;</span>,
+ <span class="ot">@location</span>=
+  <span class="co">#&lt;Point:0x0000000681d390</span>
+   <span class="ot">@latitude</span>=<span class="fl">33.87546081542969</span>,
+   <span class="ot">@longitude</span>=-<span class="fl">116.30161960177952</span>&gt;,
+ <span class="ot">@place</span>=<span class="dt">BSON</span>::<span class="dt">ObjectId</span>(<span class="st">&#39;5652b509e301d03daf000075&#39;</span>)&gt;</code></pre>
+<pre class="shell"><code>$ rspec spec/rel_spec.rb -e rq05</code></pre></li>
+</ol>
+<h3 id="data-tier-population">Data Tier Population</h3>
+<p>In this section you must implement a data initialization/population script in <code>db/seed.rb</code> that will be runnable from the operating system shell using <code>$ rake db:seed</code>. In this Ruby script, you must clear the database of existing records, ingest the <code>Place</code>s and <code>Photo</code>s, and form <code>one-to-many</code> linked relationships between <code>photo</code>s and <code>place</code>s. This should simply be the grand finale of most of the model class capabilities you implemented above in order to populate the data tier for use in the follow-on web tier.<br />Your <code>seed.rb</code> must:</p>
+<ol style="list-style-type: decimal">
+<li><p>Clear GridFS of all files. You may use the model commands you implemented as a part of this assignment or lower-level GridFS or database commands to implement the removal of all files.</p></li>
+<li><p>Clear the <code>places</code> collection of all documents. You may use the model commands you implemented as a part of this assignment or lower-level collection or database commands to implement the removal of all documents from the <code>places</code> collection.</p></li>
+<li><p>Make sure the <code>2dsphere</code> index has been created for the nested <code>geometry.geolocation</code> property within the <code>places</code> collection.</p></li>
+<li><p>Populate the <code>places</code> collection using the <code>db/places.json</code> file from the provided bootstrap files in <code>student-start</code>.</p></li>
+<li><p>Populate GridFS with the images also located in the <code>db/</code> folder and supplied with the bootstrap files in <code>student-start</code>.</p>
+<p>Hint: The following snippet will loop thru the set of images. You must ingest the contents of each of these files as a <code>Photo</code>.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; <span class="dt">Dir</span>.glob(<span class="st">&quot;./db/image*.jpg&quot;</span>) { |f| p f}
+<span class="st">&quot;./db/image3.jpg&quot;</span>
+...
+<span class="st">&quot;./db/image2.jpg&quot;</span></code></pre></li>
+<li><p>For each <code>photo</code> in GridFS, locate the nearest <code>place</code> within one (1) mile of each <code>photo</code> and associated the <code>photo</code> with that <code>place</code>. (Hint: make sure to convert miles to meters for the inputs to the search).</p></li>
+<li><p>As a self-test, verify that you have the following <code>place</code>s -- shown by their formatted address -- associated with a <code>photo</code> and can locate this association with a reference to the <code>place</code>.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; pp <span class="dt">Place</span>.all.reject {|pl| pl.photos.empty?}.map {|pl| pl.formatted_address}.sort
+
+[<span class="st">&quot;1399 Baltimore Pike, Chadds Ford, PA 19317, USA&quot;</span>,
+ <span class="st">&quot;77713-77735 Dillon Rd, Desert Hot Springs, CA 92241, USA&quot;</span>,
+ <span class="st">&quot;8 Badgergate Ave, Wilsden, Bradford, West Yorkshire BD15 0LJ, UK&quot;</span>,
+ <span class="st">&quot;Flamingo Beach Road, Playa Flamingo, Costa Rica&quot;</span>,
+ <span class="st">&quot;Hamanasu Line, Ohatamachi, Mutsu-shi, Aomori-ken 039-4401, Japan&quot;</span>,
+ <span class="st">&quot;Zieglmeierstra.e 11, 82383 Hohenpei.enberg, Germany&quot;</span>]</code></pre>
+<pre class="shell"><code>$ rake db:seed
+$ rspec spec/seed_spec.rb</code></pre></li>
+</ol>
+<h3 id="serve-photo-images">Serve Photo Images</h3>
+<p>In this section you must build a minimal web tier to serve up your photos thru a raw URI. This is primarily a demonstration and test of what you have accomplished at the data tier. All assembly instructions will be provided here. The success of this section will be based on whether a <code>jpeg</code> image is served to the web client when accessing the <code>/photos/:id/show</code> URI for a known <code>id</code>.</p>
+<ol style="list-style-type: decimal">
+<li><p>Create a controller class for serving up <code>Photo</code> contents using <code>rails g controller</code>. Add a single action called <code>show</code> to the controller. This will be used to serve up the contents of the <code>photo</code>.</p>
+<pre class="shell"><code>$ rails g controller photos show
+      create  app/controllers/photos_controller.rb
+       route  get &#39;photos/show&#39;
+  ...</code></pre>
+<p>In addition to the controller class, Rails will create a URI route to the action using the URI shown below. Additionally, a helper method called <code>photos_show_path</code> is created and refers to that URI. However, this is not good enough because the URI must be able to express an <code>id</code> of the desired image.</p>
+<pre class="shell"><code>$ rake routes
+   Prefix Verb URI Pattern            Controller#Action
+   photos_show GET  /photos/show(.:format) photos#show  </code></pre></li>
+<li><p>Update the entry in <code>config/routes.rb</code> to include an <code>:id</code> parameter to the <code>show</code> action. The <code>:id</code> is a key after the <code>photos</code> resource collection in the URI. Once you add that -- Rails will want some additional information specified -- to include controller and action (since we have customized this somewhat). We can also restore the helper method by specifying the the <code>as:</code> parameter.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby"><span class="co">#get &#39;photos/show&#39;</span>
+get <span class="st">&#39;photos/:id/show&#39;</span>, to: <span class="st">&#39;photos#show&#39;</span>, as: <span class="st">&#39;photos_show&#39;</span></code></pre>
+<pre class="shell"><code>$ rake routes
+
+ Prefix Verb URI Pattern                Controller#Action
+ photos_show GET  /photos/:id/show(.:format) photos#show</code></pre>
+<p>You can verify your URI is correct by navigating to the following URL and seeing the default page displayed.</p>
+<p><strong>Note</strong>: If not done already, launch your rails server using <code>rails s</code></p>
+<pre><code>http://localhost:3000/photos/1/show
+Photos#show
+Find me in app/views/photos/show.html.erb</code></pre></li>
+<li><p>Implement the <code>photos#show</code> action within the controller class. All files within this assignment are mime type <code>image/jpeg</code>.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby"><span class="kw">def</span> show
+    <span class="ot">@photo</span> = <span class="dt">Photo</span>.find(params[<span class="st">:id</span>])
+    send_data <span class="ot">@photo</span>.contents, { type: <span class="st">&#39;image/jpeg&#39;</span>, disposition: <span class="st">&#39;inline&#39;</span>}
+<span class="kw">end</span></code></pre>
+<p>Locate a sample <code>id</code> using the Rails console.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; <span class="dt">Photo</span>.all.sample.id
+ =&gt; <span class="st">&quot;56554251e301d0ed8c00003f&quot;</span></code></pre>
+<p>Use that <code>id</code> in the URI to see a sample image.</p>
+<pre class="url"><code>http://localhost:3000/photos/56554251e301d0ed8c00003f/show</code></pre>
+<pre class="shell"><code>$ rspec spec/images_spec.rb</code></pre></li>
+</ol>
+<h3 id="show-places-and-photo-images">Show Places and Photo Images</h3>
+<p>In this section you must build a minimal web tier to serve up your places and associated photos. This is primarily a demonstration and test of what you have accomplished at the data tier. All assembly instructions will be provided here. The success of this section will be based on whether the <code>places#index</code> and <code>places#show</code> pages have been implemented. You are free to explore how to expand on this view once the assignment has been submitted.</p>
+<ol style="list-style-type: decimal">
+<li><p>Create a complete scaffold with controller and views for <code>Place</code> using the <code>rails g scaffold_controler</code> command.</p>
+<pre class="shell"><code>$ rails g scaffold_controller place formatted_address
+      create  app/controllers/places_controller.rb
+      invoke  erb
+      create    app/views/places
+      create    app/views/places/index.html.erb
+      create    app/views/places/edit.html.erb
+      create    app/views/places/show.html.erb
+      create    app/views/places/new.html.erb
+      create    app/views/places/_form.html.erb</code></pre></li>
+<li><p>Add the <code>places#index</code> as the default URI for the application and register the <code>places</code> resource. This will generate the full suite of URIs for the resource. Since we are only going to use <code>index</code> and <code>show</code> witin the scope of this assignment -- limit the actions to only those two.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">root <span class="st">&#39;places#index&#39;</span>
+resources <span class="st">:places</span>, only: [<span class="st">:index</span>, <span class="st">:show</span>]
+get <span class="st">&#39;photos/:id/show&#39;</span>, to: <span class="st">&#39;photos#show&#39;</span>, as: <span class="st">&#39;photos_show&#39;</span></code></pre>
+<p>Once you made these updates in <code>config/routes.rb</code>, invoke the <code>rake routes</code> command</p>
+<pre class="shell"><code>     Prefix Verb URI Pattern                Controller#Action
+       root GET  /                          places#index
+     places GET  /places(.:format)          places#index
+      place GET  /places/:id(.:format)      places#show
+photos_show GET  /photos/:id/show(.:format) photos#show</code></pre></li>
+<li><p>Update the model and and generated view classes to be able to view the index page</p>
+<p>Include the <code>ActiveModel::Model</code> mixin. This quickly adds several key properties to the model that are expected by the scaffold-generated view.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby"><span class="kw">class</span> <span class="dt">Place</span>
+  include <span class="dt">ActiveModel</span>::<span class="dt">Model</span></code></pre>
+<p>Remove the following lines from the <code>index</code> page (<code>app/views/places/index.html.erb</code>). We have removed these links.</p>
+<pre class="sourceCode html"><code class="sourceCode html"><span class="kw">&lt;td&gt;</span><span class="er">&lt;</span>%= link_to &#39;Edit&#39;, edit_place_path(place) %&gt;<span class="kw">&lt;/td&gt;</span>
+<span class="kw">&lt;td&gt;</span><span class="er">&lt;</span>%= link_to &#39;Destroy&#39;, place, method: :delete, data: { confirm: &#39;Are you sure?&#39; } %&gt;<span class="kw">&lt;/td&gt;</span>
+<span class="er">&lt;</span>%= link_to &#39;New Place&#39;, new_place_path %&gt;</code></pre>
+<p>You should now be able to view the index page of <code>formatted_addresses</code></p>
+<pre class="url"><code>http://localhost:3000/places</code></pre>
+<p>Add thumbnail-sized preview images on the index page by updating the index page one last time.</p>
+<pre class="sourceCode html"><code class="sourceCode html"><span class="er">&lt;</span>% @places.each do |place| %&gt;
+<span class="er">&lt;</span>% photo=place.photos.sample %&gt;
+  <span class="kw">&lt;tr&gt;</span>
+    <span class="kw">&lt;td&gt;</span><span class="er">&lt;</span>%= place.formatted_address %&gt;<span class="kw">&lt;/td&gt;</span>
+    <span class="er">&lt;</span>% if photo %&gt;
+      <span class="kw">&lt;td&gt;&lt;img</span><span class="ot"> height=</span><span class="st">&quot;50px&quot;</span><span class="ot"> width=</span><span class="st">&quot;65px&quot;</span><span class="ot"> src=</span> <span class="er">&lt;</span><span class="st">%=</span><span class="ot"> photos_show_path</span><span class="er">(&quot;#{photo.id}&quot;)%</span><span class="kw">&gt;</span>/&gt;<span class="kw">&lt;/td&gt;</span>
+    <span class="er">&lt;</span>% end %&gt;</code></pre></li>
+<li><p>Update the model and and generated view classes to be able to view the show page</p>
+<p>Add the <code>persisted?</code> method that returns true if the model instance has been saved to the database. This will allow it to use the <code>:id</code> to navigate from the index page to the show page.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby"><span class="kw">class</span> <span class="dt">Place</span>
+  include <span class="dt">ActiveModel</span>::<span class="dt">Model</span>
+
+  <span class="kw">def</span> persisted?
+    !<span class="ot">@id</span>.nil?
+  <span class="kw">end</span></code></pre>
+<p>Remove the following lines from the <code>show</code> page (<code>app/views/places/show.html.erb</code>). We have removed these links.</p>
+<pre class="sourceCode html"><code class="sourceCode html"><span class="er">&lt;</span>%= link_to &#39;Edit&#39;, edit_place_path(@place) %&gt; |</code></pre>
+<p>Update the place <code>show</code> page (<code>app/views/places/show.html.erb</code>) to display each photo associated with the place.</p>
+<pre class="sourceCode html"><code class="sourceCode html"><span class="er">&lt;</span>% @place.photos.each do |photo| %&gt;
+  <span class="kw">&lt;p&gt;</span>
+    <span class="kw">&lt;img</span><span class="ot"> height=</span><span class="st">&quot;500px&quot;</span><span class="ot"> width=</span><span class="st">&quot;650px&quot;</span><span class="ot"> src=</span> <span class="er">&lt;</span><span class="st">%=</span><span class="ot"> photos_show_path</span><span class="er">(&quot;#{photo.id}&quot;)%</span><span class="kw">&gt;</span>/&gt;
+  <span class="kw">&lt;/p&gt;</span>
+<span class="er">&lt;</span>% end %&gt;</code></pre>
+<p>You should now be able to view the individual page for each <code>place</code></p></li>
+<li><p>The test data, unfortunately has only a single photo for a specific location. Go back into rails console, import and associate the photos multiple times to see multiple images on the show page.</p>
+<pre class="shell"><code>$ rspec spec/web_spec.rb</code></pre></li>
+</ol>
+<h2 id="self-gradingfeedback">Self Grading/Feedback</h2>
+<p>Some unit tests have been provided in the bootstrap files and provide examples of tests the grader will be evaluating for when you submit your solution. They must be run from the project root directory.</p>
+<pre class="shell"><code>$ rspec (file)
+...
+(N) examples, 0 failures</code></pre>
+<p>You can run as many specific tests you wish be adding <code>-e rq## -e rq##</code></p>
+<pre class="shell"><code>$ rspec (file) -e rq01 -e rq02</code></pre>
+<h2 id="submission">Submission</h2>
+<p>Submit an .zip archive (other archive forms not currently supported) with your solution root directory as the top-level (e.g., your Gemfile and sibling files must be in the root of the archive and <em>not</em> in a sub-folder. The grader will replace the spec files with fresh copies and will perform a test with different query terms.</p>
+<pre class="text"><code>|-- app
+|   |-- assets
+|   |-- controllers
+|   |-- helpers
+|   |-- mailers
+|   |-- models
+|   `-- views
+|-- bin
+|-- config
+|-- config.ru
+|-- db
+|-- Gemfile
+|-- Gemfile.lock
+|-- lib
+|-- log
+|-- public
+|-- Rakefile
+|-- README.rdoc
+|-- test
+`-- vendor</code></pre>
+<h4 id="last-updated-2015-12-23">Last Updated: 2015-12-23</h4>
