@@ -2,7 +2,7 @@ class Point
   attr_accessor :longitude, :latitude
 
   def initialize(params)
-    if params.has_key? :type
+    if params[:type]
       @longitude = params[:coordinates][0]
       @latitude = params[:coordinates][1]
     else
