@@ -7,7 +7,7 @@ class Place
     @id = params[:_id].to_s
 
     @address_components = []
-    if params.has_key? address_components
+    if !params[:address_components].nil?
       address_components = params[:address_components]
       address_components.each { |a| @address_components << AddressComponent.new(a) }
     end
