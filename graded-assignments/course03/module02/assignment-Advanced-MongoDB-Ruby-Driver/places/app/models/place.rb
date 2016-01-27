@@ -65,4 +65,52 @@ class Place
     self.class.collection.find(:_id => BSON::ObjectId.from_string(@id)).delete_one
   end
 
+  def self.get_address_components(sort=nil, offset=0, limit=nil)
+    if sort.nil? and limit.nil?
+      Place.collection.aggregate([
+        {:$unwind => '$address_components'}, 
+        {:$project => { :_id=>1, :address_components=>1, :formatted_address=>1, :geometry => {:geolocation => 1}}}, 
+        {:$skip => offset}
+      ])
+    elsif sort.nil? and !limit.nil?
+      Place.collection.aggregate([
+        {:$unwind => '$address_components'}, 
+        {:$project => { :_id=>1, :address_components=>1, :formatted_address=>1, :geometry => {:geolocation => 1}}}, 
+        {:$skip => offset}, 
+        {:$limit => limit}
+      ])
+    elsif !sort.nil? and limit.nil?
+      Place.collection.aggregate([
+        {:$unwind => '$address_components'}, 
+        {:$project => { :_id=>1, :address_components=>1, :formatted_address=>1, :geometry => {:geolocation => 1}}}, 
+        {:$sort => sort}, 
+        {:$skip => offset}
+      ])
+    else
+      Place.collection.aggregate([
+        {:$unwind => '$address_components'}, 
+        {:$project=>{ :_id=>1, :address_components=>1, :formatted_address=>1, :geometry => {:geolocation => 1}}}, 
+        {:$sort => sort}, 
+        {:$skip => offset}, 
+        {:$limit => limit}
+      ])
+    end
+  end
+
+  def self.get_country_names
+    Place.collection.aggregate([
+      {:$unwind => '$address_components'}, 
+      {:$project=>{ :_id=>0, :address_components=> {:long_name => 1, :types => 1} }}, 
+      {:$match => {'address_components.types': "country"  }}, {:$group=>{ :_id=>'$address_components.long_name', :count=>{:$sum=>1}}}
+    ]).to_a.map {|h| h[:_id]}
+  end
+
+  def self.find_ids_by_country_code(s)
+    Place.collection.aggregate([
+      {:$unwind => '$address_components'}, 
+      {:$project=>{ :_id=>1, :address_components=> {:short_name => 1, :types => 1} }}, 
+      {:$match => {'address_components.short_name': s}}
+    ]).map {|h| h[:_id].to_s}
+  end
+
 end
