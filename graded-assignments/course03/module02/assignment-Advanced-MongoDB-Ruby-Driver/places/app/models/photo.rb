@@ -1,5 +1,6 @@
 class Photo
-  attr_accessor :id, :location, :contents
+  attr_accessor :id, :location
+  attr_writer :contents
 
   def initialize(params=nil)
     @id = params[:_id].to_s if !params.nil? && !params[:_id].nil?
