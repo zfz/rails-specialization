@@ -1,0 +1,339 @@
+<h1 id="module-3-lesson-1-mongoid-setup-and-document-crud">Module 3, Lesson 1: Mongoid Setup and Document CRUD</h1>
+<p>The overall goal of the assignment is to give you practice in:</p>
+<ul>
+<li>Setting up an application for use with Mongoid</li>
+<li>Mapping and interacting with Mongoid Document class instances</li>
+<li>Creating new and updating existing documents in the database</li>
+</ul>
+<p>The functional goal of the assignment is to:</p>
+<ul>
+<li>To configure a Mongoid database connection to build a data tier for Race results.</li>
+<li>Create, update, find, and delete <code>Racer</code> instances.</li>
+</ul>
+<p>This is an introductory practice exercise that is intended to give you experience with some of the most basic CRUD capabilities within Mongoid. Most of the code is provided to you and all of the development is through the interactive <code>rails console</code>. There is nothing to turn in.</p>
+<p>Since the development is through the <code>rails console</code>, the tests provided will be evaulating the state of the database after your CRUD interactions. As a result you must ensure that you are operating on the 'test' database that the rspec tests are running against. This simply requires the addition of an option when you start up the console:</p>
+<pre class="shell"><code>$ rails c -e test</code></pre>
+<p>The console will indicate that the test environment is loaded after you issue the command.</p>
+<p>You can find details of the Mongoid API on the <a href="https://docs.mongodb.org/ecosystem/tutorial/ruby-mongoipd-tutorial/"><code>Mongoid Tutorial Page</code></a></p>
+<h2 id="functional-requirements">Functional Requirements</h2>
+<ol style="list-style-type: decimal">
+<li><p>Setup the database and get a connection and reference to a document collection.</p></li>
+<li><p>Instantiate a Mongoid object and change its attribute state.</p></li>
+<li><p>Create, find, update and delete documents to/from the database.</p></li>
+</ol>
+<h2 id="gettings-started">Gettings Started</h2>
+<ol style="list-style-type: decimal">
+<li><p>Start your MongoDB server using <code>mongod</code></p></li>
+<li><p>Create a new Rails application called <code>triracers</code>.</p>
+<pre class="shell"><code>$ rails new triracers
+$ cd triracers</code></pre></li>
+<li><p>Download and extract the starter set of files. The root directory of this starter set will be referred to as the root directory of your solution. When extracted correctly -- the <code>spec</code> folder and <code>Gemfile</code> should be at the same (root) level.</p>
+<pre class="text"><code>--- student-start  
+    |-- .rspec (important hidden file)
+    `-- spec
+        |-- test_utils.rb
+        |-- lecture1_spec.rb
+        |-- lecture2_spec.rb
+        |-- lecture3_spec.rb
+        |-- rails_helper.rb
+        `-- spec_helper.rb</code></pre>
+<ul>
+<li>spec - this directory contains tests to verify your solution. You should not modify anything in this directory</li>
+</ul></li>
+<li><p>Implement the technical requirements.</p></li>
+<li><p>Run the <code>rspec</code> command from the project root directory. The spec files are written per-lecture. The steps taken in one lecture can impact the results of a preceding lecture. However, if you execute all sections correctly, you will be able to execute all rspec tests at the end and pass.</p>
+<pre class="shell"><code>$ rspec
+
+(N) examples, (N) failures
+...</code></pre></li>
+</ol>
+<h2 id="technical-requirements">Technical Requirements</h2>
+<h3 id="lecture-1-mongoid-connection">Lecture 1: Mongoid Connection</h3>
+<p>In this section we will focus on integrating Mongoid into an existing application and gaining access to a client connection and collections thru Mongoid.</p>
+<ol style="list-style-type: decimal">
+<li><p>Add the <code>mongoid</code> gem to your Gemfile and run <code>bundle</code>.</p>
+<div class="sourceCode"><pre class="sourceCode ruby"><code class="sourceCode ruby">gem <span class="st">&#39;mongoid&#39;</span>, <span class="st">&#39;~&gt; 5.0.0&#39;</span></code></pre></div>
+<pre class="shell"><code>$ bundle</code></pre>
+<p>Also add the 'rspec-rails' gem for executing the tests and run <code>bundle</code> again</p>
+<div class="sourceCode"><pre class="sourceCode ruby"><code class="sourceCode ruby">gem <span class="st">&#39;rspec-rails&#39;</span>, <span class="st">&#39;~&gt; 3.0&#39;</span></code></pre></div>
+<pre class="shell"><code>$ bundle</code></pre></li>
+<li><p>Generate a <code>mongoid.yml</code> configuration file.</p>
+<pre class="shell"><code>$ rails g mongoid:config
+      create  config/mongoid.yml</code></pre></li>
+<li><p>Inspect the generated defaults in the file and determine if there are any changes required for your development environment. The file is well commented and shows other options that are available but will not be used in class.</p>
+<div class="sourceCode"><pre class="sourceCode yaml"><code class="sourceCode yaml">$ egrep -v <span class="st">&#39;#|^$&#39;</span> config/mongoid.yml 
+<span class="fu">development:</span>
+  <span class="fu">clients:</span>
+    <span class="fu">default:</span>
+      <span class="fu">database:</span> triracers_development
+      <span class="fu">hosts:</span>
+        <span class="kw">-</span> <span class="fu">localhost:</span>27017
+      <span class="fu">options:</span>
+  <span class="fu">options:</span>
+<span class="fu">test:</span>
+  <span class="fu">clients:</span>
+    <span class="fu">default:</span>
+      <span class="fu">database:</span> triracers_test
+      <span class="fu">hosts:</span>
+        <span class="kw">-</span> <span class="fu">localhost:</span>27017
+      <span class="fu">options:</span>
+        <span class="fu">read:</span>
+          <span class="fu">mode:</span> :primary
+        <span class="fu">max_pool_size:</span> 1</code></pre></div></li>
+<li><p>Add the <code>mongoid.yml</code> file to the <code>config/application.rb</code> file so that tools like <code>rails console</code> do not have to manually load the configuration.</p>
+<div class="sourceCode"><pre class="sourceCode ruby"><code class="sourceCode ruby"><span class="kw">module</span> <span class="dt">Triracers</span>
+  <span class="kw">class</span> <span class="dt">Application</span> &lt; <span class="dt">Rails</span>::<span class="dt">Application</span>
+    ...
+    <span class="co">#bootstraps mongoid within applications -- like rails console</span>
+    <span class="dt">Mongoid</span>.load!(<span class="st">&#39;./config/mongoid.yml&#39;</span>)</code></pre></div></li>
+<li><p>[ Optionally ] set the default <code>orm</code> template engine for <code>rails generate</code> commands within the same <code>config/application.rb</code> file. With the <code>mongoid</code> gem installed within your application -- <code>mongoid</code> will be the default <code>orm</code> engine. You can use this technique to set the default engine back to <code>active_record</code> or specify the <code>orm</code> engine to use on the command line with the <code>--orm (name)</code> option.</p>
+<div class="sourceCode"><pre class="sourceCode ruby"><code class="sourceCode ruby"><span class="co">#which default ORM are we using with scaffold</span>
+<span class="co">#add  --orm none, mongoid, or active_record </span>
+<span class="co">#    to rails generate cmd line to be specific</span>
+<span class="co">#config.generators {|g| g.orm :active_record}</span>
+<span class="co">#config.generators {|g| g.orm :mongoid}</span></code></pre></div></li>
+<li><p>Generate a skeletal Mongoid <code>Racer</code> model class using the <code>rails generate model</code> command. No properties are required at this time.</p>
+<pre class="shell"><code>$ rails g model Racer</code></pre></li>
+<li><p>Use the <code>rails console</code> to verify you can obtain a connection to the database and access the collection associated with <code>Racer</code>.</p>
+<pre class="shell"><code>$ rails c -e test
+
+&gt; Racer.mongo_client
+ =&gt; #&lt;Mongo::Client:0x43995560 cluster=localhost:27017&gt; 
+&gt; Racer.collection
+ =&gt; #&lt;Mongo::Collection:0x43955740 namespace=triracers_test.racers&gt; 
+&gt; Racer.collection.name
+ =&gt; &quot;racers&quot; 
+&gt; Racer.count
+ =&gt; 0 </code></pre></li>
+</ol>
+<pre><code>$ rspec spec/lecture1_spec.rb</code></pre>
+<h3 id="lecture-2-model-classdocument">Lecture 2: Model Class/Document</h3>
+<p>This section focuses on mapping a Rails model class to a MongoDB collecion.</p>
+<ol style="list-style-type: decimal">
+<li><p>Re-generate the Mongoid <code>Racer</code> model class using the <code>rails generate model</code> command.</p>
+<ul>
+<li><strong>Hint 1</strong>: <code>rails d model (ModelName)</code> will remove an existing model class and fixtures.</li>
+<li><strong>Hint 2</strong>: <code>rails g model (ModelName)</code> will prompt you before overwriting an existing file.</li>
+<li><strong>Hint 3</strong>: adding the <code>--force</code> option will overwrite existing files without prompts.</li>
+</ul>
+<p>This class must:</p>
+<ul>
+<li>be named <code>Racer</code></li>
+<li>include the <code>Mongoid::Document</code> mixin</li>
+<li>have a <code>first_name</code> attribute defined to hold a value of type String</li>
+<li>have a <code>last_name</code> attribute defined to hold a value of type String</li>
+<li>have a <code>date_of_birth</code> attribute defined to hold a value of type Date</li>
+<li>have a <code>gender</code> attribute defined to hold a value of type String</li>
+</ul>
+<pre><code>$ rails g model Racer ...</code></pre></li>
+<li><p>Map the class properties to documentation properties found within our documents. This is not always necessary or desired, but being able to form a class that is consistent with Rails naming conventions and then custom mapped to the names of the collection and document fields isolates the possible differences from the rest of the application. Your model class mappings must:</p>
+<ul>
+<li>map the model class to be stored in the <code>racer1</code> collection</li>
+<li>alias the model class <code>first_name</code> attribute to the <code>fn</code> document property</li>
+<li>alias the model class <code>first_name</code> attribute to the <code>ln</code> document property</li>
+<li>alias the model class <code>date_of_birth</code> attribute to the <code>dob</code> document property</li>
+<li>keep the model class <code>gender</code> attribute mapped to the <code>gender</code> document property</li>
+</ul>
+<p>You can create an empty instance at this point to print a debug message that shows the field to document mapping.</p>
+<p><strong>Hint</strong>: use the <code>reload!</code> command to see the new implementation of your model class within <code>rails console</code>.</p>
+<div class="sourceCode"><pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; reload!
+&gt; <span class="dt">Racer</span>.new
+ =&gt; <span class="co">#&lt;Racer _id: 5674dafce301d01ff2000001, </span>
+     fn(first_name): <span class="dv">nil</span>, ln(last_name): <span class="dv">nil</span>, dob(date_of_birth): <span class="dv">nil</span>, gender: <span class="dv">nil</span>&gt;</code></pre></div></li>
+<li><p>Add support for timestamps to the model class. Your model class must:</p>
+<ul>
+<li>include the <code>Mongoid::Timestamps</code> mixin</li>
+</ul>
+<p>At this point you can create an empty <code>Racer</code> instance to print a debug message. This will show the <em>field-to-document</em> mapping to include the timestamp information (e.g., <code>created_at</code> and <code>updated_at</code>). The timestamps are currently <code>nil</code> since the instance has not been saved to the database.</p>
+<div class="sourceCode"><pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; <span class="dt">Racer</span>.new
+ =&gt; <span class="co">#&lt;Racer _id: 5674dbf6e301d01ff2000002, created_at: nil, updated_at: nil, </span>
+     fn(first_name): <span class="dv">nil</span>, ln(last_name): <span class="dv">nil</span>, dob(date_of_birth): <span class="dv">nil</span>, gender: <span class="dv">nil</span>&gt;</code></pre></div></li>
+<li><p>Using the <code>rails console</code>, create an instance of your <code>Racer</code> class using a bulk assignment with a mixture of class and document mappings. <strong>Do not save it to the database yet</strong>.</p>
+<div class="sourceCode"><pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; r=<span class="dt">Racer</span>.new(<span class="st">:fn=</span>&gt;<span class="st">&quot;cat&quot;</span>, <span class="st">:ln=</span>&gt;<span class="st">&quot;hat&quot;</span>)
+ =&gt; <span class="co">#&lt;Racer _id: 5674dd1ee301d01ff2000004, created_at: nil, updated_at: nil, </span>
+     fn(first_name): <span class="st">&quot;cat&quot;</span>, ln(last_name): <span class="st">&quot;hat&quot;</span>, dob(date_of_birth): <span class="dv">nil</span>, gender: <span class="dv">nil</span>&gt; </code></pre></div>
+<p>Notice that the document was populated with the document field names and the class instance reports both the document and mapped ( <code>class_field_names</code> ) for each property.</p>
+<div class="sourceCode"><pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; r.attributes
+ =&gt; {<span class="st">&quot;_id&quot;</span>=&gt;<span class="dt">BSON</span>::<span class="dt">ObjectId</span>(<span class="st">&#39;5674dd1ee301d01ff2000004&#39;</span>), <span class="st">&quot;fn&quot;</span>=&gt;<span class="st">&quot;cat&quot;</span>, <span class="st">&quot;ln&quot;</span>=&gt;<span class="st">&quot;hat&quot;</span>}
+
+&gt; r
+ =&gt; <span class="co">#&lt;Racer _id: 5674dd1ee301d01ff2000004, created_at: nil, updated_at: nil, </span>
+     fn(first_name): <span class="st">&quot;cat&quot;</span>, ln(last_name): <span class="st">&quot;hat&quot;</span>, dob(date_of_birth): <span class="dv">nil</span>, gender: <span class="dv">nil</span>&gt; </code></pre></div></li>
+<li><p>Use the various getters to obtain the state of your instance.</p>
+<div class="sourceCode"><pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; r.first_name
+ =&gt; <span class="st">&quot;cat&quot;</span> 
+&gt; r.fn
+ =&gt; <span class="st">&quot;cat&quot;</span> 
+&gt; r[<span class="st">:fn</span>]
+ =&gt; <span class="st">&quot;cat&quot;</span> 
+&gt; r.read_attribute(<span class="st">:fn</span>)
+ =&gt; <span class="st">&quot;cat&quot;</span> </code></pre></div></li>
+<li><p>Use the various setters to change the state of your instance.</p>
+<p>Change the <code>first_name</code> of the instance using the model class setter method.</p>
+<div class="sourceCode"><pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; r.first_name=<span class="st">&quot;thing&quot;</span>
+ =&gt; <span class="st">&quot;thing&quot;</span> </code></pre></div>
+<p>Change the <code>last_name</code> of the instance using the <code>hash[:key]</code> assignment method.</p>
+<div class="sourceCode"><pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; r[<span class="st">:last_name</span>]=<span class="st">&quot;one&quot;</span>
+ =&gt; <span class="st">&quot;one&quot;</span> </code></pre></div>
+<p>Set the <code>dob</code> document field using the <code>write_attribute</code> reflection method.</p>
+<div class="sourceCode"><pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; r.write_attribute(<span class="st">:dob</span>, <span class="dt">Date</span>.new(<span class="dv">1957</span>,<span class="dv">3</span>,<span class="dv">12</span>))
+ =&gt; <span class="dv">1957</span><span class="bn">-03</span><span class="dv">-12</span> <span class="dv">00</span>:<span class="dv">00</span>:<span class="dv">00</span> <span class="dt">UTC</span> </code></pre></div></li>
+<li><p>From the list of methods for the object, inspect the state of your instance by locating a method we believe is called <code>changed</code>. Use the <code>methods</code> command to get a (huge) list of all methods that can be called. Then, use the array <code>grep</code> command to reduce that list to methods that are related to our <code>changed</code> search criteria.</p>
+<div class="sourceCode"><pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; r.methods.grep <span class="ot">/changed/</span>
+ =&gt; [<span class="st">:changed_for_autosave?</span>, ... <span class="st">:changed?</span>, <span class="st">:children_changed?</span>, <span class="st">:changed_attributes</span>] </code></pre></div>
+<p>Call the <code>changed?</code> command to determine if the object needs to be saved.</p>
+<div class="sourceCode"><pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; r.changed?
+ =&gt; <span class="dv">true</span> </code></pre></div>
+<p>Verify the state was is not yet written to the database by using the collection.</p>
+<div class="sourceCode"><pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; <span class="dt">Racer</span>.collection.find(<span class="st">:_id=</span>&gt;r.id).first
+ =&gt; <span class="dv">nil</span> </code></pre></div></li>
+<li><p>Save your instance to the database using the <code>save</code> method.</p>
+<div class="sourceCode"><pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; r.save
+ =&gt; <span class="dv">true</span> </code></pre></div>
+<p>Verify the object reports that it has been saved.</p>
+<div class="sourceCode"><pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; r.persisted?
+ =&gt; <span class="dv">true</span> 
+&gt; r.changed?
+ =&gt; <span class="dv">false</span> </code></pre></div>
+<p>Verify the state is in the database.</p>
+<div class="sourceCode"><pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; <span class="dt">Racer</span>.collection.find(<span class="st">:_id=</span>&gt;r.id).first
+ =&gt; {<span class="st">&quot;_id&quot;</span>=&gt;<span class="dt">BSON</span>::<span class="dt">ObjectId</span>(<span class="st">&#39;5674dd1ee301d01ff2000004&#39;</span>), 
+  <span class="st">&quot;fn&quot;</span>=&gt;<span class="st">&quot;thing&quot;</span>, <span class="st">&quot;ln&quot;</span>=&gt;<span class="st">&quot;one&quot;</span>, <span class="st">&quot;dob&quot;</span>=&gt;<span class="dv">1957</span><span class="bn">-03</span><span class="dv">-12</span> <span class="dv">00</span>:<span class="dv">00</span>:<span class="dv">00</span> <span class="dt">UTC</span>, 
+  <span class="st">&quot;updated_at&quot;</span>=&gt;<span class="dv">2015-12-19</span> <span class="bn">04</span>:<span class="dv">37</span>:<span class="dv">31</span> <span class="dt">UTC</span>, <span class="st">&quot;created_at&quot;</span>=&gt;<span class="dv">2015-12-19</span> <span class="bn">04</span>:<span class="dv">37</span>:<span class="dv">31</span> <span class="dt">UTC</span>} </code></pre></div></li>
+<li><p>Now that your object is persisted, modify and save its state such that it has the following properties:</p>
+<ul>
+<li><code>first_name</code> =&gt; &quot;Sally&quot;</li>
+<li><code>last_name</code> =&gt; nil</li>
+<li><code>gender</code> =&gt; &quot;F&quot;</li>
+<li><code>date_of_birth</code> =&gt; 1957-01-01</li>
+</ul>
+<p>You can inspect your updated object instance and database state using the Rails console.</p>
+<div class="sourceCode"><pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; r
+ =&gt; <span class="co">#&lt;Racer _id: 5674dd1ee301d01ff2000004, </span>
+   created_at: <span class="dv">2015-12-19</span> <span class="bn">04</span>:<span class="dv">37</span>:<span class="dv">31</span> <span class="dt">UTC</span>, updated_at: <span class="dv">2015-12-19</span> <span class="bn">04</span>:<span class="dv">40</span>:<span class="dv">30</span> <span class="dt">UTC</span>, 
+   fn(first_name): <span class="st">&quot;Sally&quot;</span>, ln(last_name): <span class="dv">nil</span>, 
+   dob(date_of_birth): <span class="dv">1957</span><span class="bn">-01-01</span> <span class="dv">00</span>:<span class="dv">00</span>:<span class="dv">00</span> <span class="dt">UTC</span>, gender: <span class="st">&quot;F&quot;</span>&gt; 
+
+&gt; r.attributes
+ =&gt; {<span class="st">&quot;_id&quot;</span>=&gt;<span class="dt">BSON</span>::<span class="dt">ObjectId</span>(<span class="st">&#39;5674dd1ee301d01ff2000004&#39;</span>), 
+    <span class="st">&quot;fn&quot;</span>=&gt;<span class="st">&quot;Sally&quot;</span>, <span class="st">&quot;ln&quot;</span>=&gt;<span class="dv">nil</span>, <span class="st">&quot;dob&quot;</span>=&gt;<span class="dv">1957</span><span class="bn">-01-01</span> <span class="dv">00</span>:<span class="dv">00</span>:<span class="dv">00</span> <span class="dt">UTC</span>, 
+    <span class="st">&quot;updated_at&quot;</span>=&gt;<span class="dv">2015-12-19</span> <span class="bn">04</span>:<span class="dv">40</span>:<span class="dv">30</span> <span class="dt">UTC</span>, <span class="st">&quot;created_at&quot;</span>=&gt;<span class="dv">2015-12-19</span> <span class="bn">04</span>:<span class="dv">37</span>:<span class="dv">31</span> <span class="dt">UTC</span>, 
+    <span class="st">&quot;gender&quot;</span>=&gt;<span class="st">&quot;F&quot;</span>} </code></pre></div></li>
+</ol>
+<pre class="shell"><code>$ rspec spec/lecture2_spec.rb</code></pre>
+<h3 id="lecture-3-basic-crud">Lecture 3: Basic CRUD</h3>
+<p>In the previous section you instantiated and interacted with a transient instance. This section concentrates on creating and deleting document objects.</p>
+<ol style="list-style-type: decimal">
+<li><p>Create a new instance of a <code>Racer</code> within the database without going through <code>new</code>/<code>save</code>. Use the <code>create</code> method to insert a document with the following <code>Entrant</code> information, while also manually assigning the <code>_id</code> of the object.</p>
+<ul>
+<li><code>_id</code> =&gt; 1</li>
+<li><code>fn</code> =&gt; &quot;cat&quot;</li>
+<li><code>ln</code> =&gt; &quot;inhat&quot;</li>
+</ul>
+<p>Your output from the shell evaluation should be as follows:</p>
+<div class="sourceCode"><pre class="sourceCode ruby"><code class="sourceCode ruby"> =&gt; <span class="co">#&lt;Racer _id: 1, </span>
+   created_at: <span class="dv">2015-12-19</span> <span class="dv">16</span>:<span class="bn">06</span>:<span class="dv">27</span> <span class="dt">UTC</span>, updated_at: <span class="dv">2015-12-19</span> <span class="dv">16</span>:<span class="bn">06</span>:<span class="dv">27</span> <span class="dt">UTC</span>, 
+   fn(first_name): <span class="st">&quot;cat&quot;</span>, ln(last_name): <span class="st">&quot;inhat&quot;</span>, dob(date_of_birth): <span class="dv">nil</span>, gender: <span class="dv">nil</span>&gt; 
+&gt; <span class="dt">Racer</span>.collection.find(<span class="st">:_id=</span>&gt;<span class="dv">1</span>).first
+ =&gt; {<span class="st">&quot;_id&quot;</span>=&gt;<span class="dv">1</span>, <span class="st">&quot;fn&quot;</span>=&gt;<span class="st">&quot;cat&quot;</span>, <span class="st">&quot;ln&quot;</span>=&gt;<span class="st">&quot;inhat&quot;</span>, 
+   <span class="st">&quot;updated_at&quot;</span>=&gt;<span class="dv">2015-12-19</span> <span class="dv">16</span>:<span class="bn">06</span>:<span class="dv">27</span> <span class="dt">UTC</span>, <span class="st">&quot;created_at&quot;</span>=&gt;<span class="dv">2015-12-19</span> <span class="dv">16</span>:<span class="bn">06</span>:<span class="dv">27</span> <span class="dt">UTC</span>} </code></pre></div></li>
+<li><p>Accidentally (on purpose) attempt to create the same object a second time.</p>
+<p><strong>Hint</strong>: use up arrow for command recall</p>
+<p>Your output from the shell command will include the following:</p>
+<div class="sourceCode"><pre class="sourceCode ruby"><code class="sourceCode ruby"><span class="dt">Mongo</span>::<span class="dt">Error</span>::<span class="dt">OperationFailure</span>: <span class="dt">E11000</span> duplicate key error index: ....<span class="dt">$_id_</span> 
+    dup key: { : <span class="dv">1</span> } (<span class="dv">11000</span>)</code></pre></div></li>
+<li><p>Create a transient instance of the object this time (with <code>new</code> instead of <code>create</code>) with the same <code>_id</code> but different field properties. Use the <code>upsert</code> method to update any existing object with the assigned <code>_id</code>, if found, or create a new instance. Either way, we will end up with a document in the database with the provided identifiying information.</p>
+<div class="sourceCode"><pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; r=<span class="dt">Racer</span>.new(<span class="st">:_id=</span>&gt;<span class="dv">1</span>, <span class="st">:fn=</span>&gt;<span class="st">&quot;thing&quot;</span>, <span class="st">:ln=</span>&gt;<span class="st">&quot;one&quot;</span>)
+&gt; r.upsert
+&gt; r
+ =&gt; <span class="co">#&lt;Racer _id: 1, created_at: nil, updated_at: nil, </span>
+   fn(first_name): <span class="st">&quot;thing&quot;</span>, ln(last_name): <span class="st">&quot;one&quot;</span>, 
+   dob(date_of_birth): <span class="dv">nil</span>, gender: <span class="dv">nil</span>&gt; 
+&gt; <span class="dt">Racer</span>.collection.find(<span class="st">:_id=</span>&gt;<span class="dv">1</span>).first
+ =&gt; {<span class="st">&quot;_id&quot;</span>=&gt;<span class="dv">1</span>, <span class="st">&quot;fn&quot;</span>=&gt;<span class="st">&quot;thing&quot;</span>, <span class="st">&quot;ln&quot;</span>=&gt;<span class="st">&quot;one&quot;</span>} </code></pre></div>
+<p>One annoying thing to notice is that the original <code>created_at</code> was lost and the <code>updated_at</code> was set to nil instead of the upsert time. You can compensate for the loss of <code>update_at</code> using the <code>touch</code> command.</p>
+<div class="sourceCode"><pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; r.touch
+&gt; r
+ =&gt; <span class="co">#&lt;Racer _id: 1, created_at: nil, updated_at: 2015-12-19 16:16:50 UTC, </span>
+   fn(first_name): <span class="st">&quot;thing&quot;</span>, ln(last_name): <span class="st">&quot;one&quot;</span>, 
+   dob(date_of_birth): <span class="dv">nil</span>, gender: <span class="dv">nil</span>&gt; 
+&gt; <span class="dt">Racer</span>.collection.find(<span class="st">:_id=</span>&gt;<span class="dv">1</span>).first
+ =&gt; {<span class="st">&quot;_id&quot;</span>=&gt;<span class="dv">1</span>, <span class="st">&quot;fn&quot;</span>=&gt;<span class="st">&quot;thing&quot;</span>, <span class="st">&quot;ln&quot;</span>=&gt;<span class="st">&quot;one&quot;</span>, <span class="st">&quot;updated_at&quot;</span>=&gt;<span class="dv">2015-12-19</span> <span class="dv">16</span>:<span class="dv">16</span>:<span class="dv">50</span> <span class="dt">UTC</span>} </code></pre></div>
+<p>You can automate the generation of the <code>update_at</code> by adding the following callback to the <code>Racer</code> model class.</p>
+<div class="sourceCode"><pre class="sourceCode ruby"><code class="sourceCode ruby"><span class="kw">class</span> <span class="dt">Racer</span>
+  ...
+  include <span class="dt">Mongoid</span>::<span class="dt">Timestamps</span>
+  ...
+
+  before_upsert <span class="kw">do</span> |doc|
+    doc.set_updated_at
+  <span class="kw">end</span>
+<span class="kw">end</span></code></pre></div>
+<p>The following is a complete sequence with the callback included. We still lose the <code>created_at</code> during the upsert but the <code>updated_at</code> is auotmatically inserted prior to the upsert call being made to the database.</p>
+<div class="sourceCode"><pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; reload!
+&gt; <span class="dt">Racer</span>.find(<span class="dv">1</span>).delete
+&gt; <span class="dt">Racer</span>.create(<span class="st">:_id=</span>&gt;<span class="dv">1</span>, <span class="st">:fn=</span>&gt;<span class="st">&quot;cat&quot;</span>, <span class="st">:ln=</span>&gt;<span class="st">&quot;inhat&quot;</span>)
+ =&gt; <span class="co">#&lt;Racer _id: 1, </span>
+   created_at: <span class="dv">2015-12-19</span> <span class="dv">17</span>:<span class="dv">47</span>:<span class="dv">00</span> <span class="dt">UTC</span>, updated_at: <span class="dv">2015-12-19</span> <span class="dv">17</span>:<span class="dv">47</span>:<span class="dv">00</span> <span class="dt">UTC</span>, 
+   fn(first_name): <span class="st">&quot;cat&quot;</span>, ln(last_name): <span class="st">&quot;inhat&quot;</span>, dob(date_of_birth): <span class="dv">nil</span>, gender: <span class="dv">nil</span>&gt; 
+&gt; r=<span class="dt">Racer</span>.new(<span class="st">:_id=</span>&gt;<span class="dv">1</span>, <span class="st">:fn=</span>&gt;<span class="st">&quot;thing&quot;</span>, <span class="st">:ln=</span>&gt;<span class="st">&quot;one&quot;</span>)
+ =&gt; <span class="co">#&lt;Racer _id: 1, </span>
+   created_at: <span class="dv">nil</span>, updated_at: <span class="dv">nil</span>, 
+   fn(first_name): <span class="st">&quot;thing&quot;</span>, ln(last_name): <span class="st">&quot;one&quot;</span>, dob(date_of_birth): <span class="dv">nil</span>, gender: <span class="dv">nil</span>&gt; 
+&gt; r.upsert
+ =&gt; <span class="dv">true</span> 
+&gt; r
+ =&gt; <span class="co">#&lt;Racer _id: 1, </span>
+   created_at: <span class="dv">nil</span>, updated_at: <span class="dv">2015-12-19</span> <span class="dv">17</span>:<span class="dv">48</span>:<span class="dv">00</span> <span class="dt">UTC</span>, 
+   fn(first_name): <span class="st">&quot;thing&quot;</span>, ln(last_name): <span class="st">&quot;one&quot;</span>, dob(date_of_birth): <span class="dv">nil</span>, gender: <span class="dv">nil</span>&gt; 
+&gt; <span class="dt">Racer</span>.collection.find(<span class="st">:_id=</span>&gt;<span class="dv">1</span>).first
+ =&gt; {<span class="st">&quot;_id&quot;</span>=&gt;<span class="dv">1</span>, <span class="st">&quot;fn&quot;</span>=&gt;<span class="st">&quot;thing&quot;</span>, <span class="st">&quot;ln&quot;</span>=&gt;<span class="st">&quot;one&quot;</span>, <span class="st">&quot;updated_at&quot;</span>=&gt;<span class="dv">2015-12-19</span> <span class="dv">17</span>:<span class="dv">48</span>:<span class="dv">00</span> <span class="dt">UTC</span>} </code></pre></div></li>
+<li><p>Create a second instance with a unique <code>_id</code> and properties. This time you should get a new instance created.</p>
+<ul>
+<li><code>_id</code> =&gt; 2</li>
+<li><code>fn</code> =&gt; &quot;thing&quot;</li>
+<li><code>ln</code> =&gt; &quot;two&quot;</li>
+</ul>
+<pre><code>&gt; two=Racer.new ...
+ =&gt; #&lt;Racer _id: 2, 
+   created_at: nil, updated_at: nil, 
+   fn(first_name): &quot;thing&quot;, ln(last_name): &quot;two&quot;, dob(date_of_birth): nil, gender: nil&gt; 
+&gt; two.upsert
+ =&gt; true 
+&gt; two
+ =&gt; #&lt;Racer _id: 2, 
+   created_at: nil, updated_at: 2015-12-19 17:54:06 UTC, 
+   fn(first_name): &quot;thing&quot;, ln(last_name): &quot;two&quot;, dob(date_of_birth): nil, gender: nil&gt; 
+&gt; Racer.collection.find(:_id=&gt;2).first
+ =&gt; {&quot;_id&quot;=&gt;2, &quot;fn&quot;=&gt;&quot;thing&quot;, &quot;ln&quot;=&gt;&quot;two&quot;, &quot;updated_at&quot;=&gt;2015-12-19 17:54:06 UTC}</code></pre>
+<p>Note that because the upsert is implemented in the database, the client cannot reliably supply a conditional <code>created_at</code> with upsert.</p></li>
+<li><p>Get a reference to <code>Racer.id=1</code> and issue a destroy (or delete to bypass callbacks) on that specific Racer.</p>
+<div class="sourceCode"><pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; <span class="dt">Racer</span>.where(<span class="st">:id=</span>&gt;<span class="dv">1</span>).first
+ =&gt; <span class="co">#&lt;Racer _id: 1, </span>
+   created_at: <span class="dv">nil</span>, updated_at: <span class="dv">2015-12-19</span> <span class="dv">17</span>:<span class="dv">48</span>:<span class="dv">00</span> <span class="dt">UTC</span>, 
+   fn(first_name): <span class="st">&quot;thing&quot;</span>, ln(last_name): <span class="st">&quot;one&quot;</span>, dob(date_of_birth): <span class="dv">nil</span>, gender: <span class="dv">nil</span>&gt; 
+&gt; <span class="dt">Racer</span>.where(<span class="st">:id=</span>&gt;<span class="dv">1</span>).delete
+ =&gt; <span class="dv">1</span> 
+&gt; <span class="dt">Racer</span>.where(<span class="st">:id=</span>&gt;<span class="dv">1</span>).first
+ =&gt; <span class="dv">nil</span> </code></pre></div></li>
+<li><p>Create a <code>Racer</code> also with the name &quot;Sally&quot; in the database. This first name should match the <code>Racer</code> created in the lecture 2 section.</p>
+<p>After you have created your new Racer, you should have two racers with the <code>first_name</code> of &quot;Sally&quot; if you have the <code>Racer</code> from the previous section. If not -- you will have just a single <code>Racer</code>.</p>
+<div class="sourceCode"><pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; <span class="dt">Racer</span>.where(<span class="st">:first_name=</span>&gt;<span class="st">&quot;Sally&quot;</span>).map {
+  |r| <span class="st">&quot;</span><span class="ot">#{</span>r.id<span class="ot">}</span><span class="st"> </span><span class="ot">#{</span>r.fn<span class="ot">}</span><span class="st">, </span><span class="ot">#{</span>r.ln<span class="ot">}</span><span class="st">, dob=</span><span class="ot">#{</span>r.dob<span class="ot">}</span><span class="st">, created_at=</span><span class="ot">#{</span>r.created_at<span class="ot">}</span><span class="st">&quot;</span>}
+ =&gt; [<span class="st">&quot;5674dd1ee301d01ff2000004 Sally, , dob=1957-01-01, created_at=2015-12-19 04:37:31 UTC&quot;</span>, 
+     <span class="st">&quot;5675a659e301d01ff2000005 Sally, , dob=, created_at=2015-12-19 18:47:53 UTC&quot;</span>]</code></pre></div></li>
+<li><p>Delete all <code>Racers</code> not having the <code>first_name</code> of <code>Sally</code> using the <code>where()</code> and <code>destroy_all()</code> methods. We have not specifically covered the <code>where()</code> function and syntax yet and where it differs from <code>collection.find()</code>, but it plays an important role with <code>delete/destroy_all()</code>. Append &quot;.ne&quot; to the property name when testing for inequality. With the <code>Racer</code> from the previous section -- you should complete this assignment with two <code>Racer</code>s remaining and they both should have the <code>first_name</code> of Sally.</p>
+<p>After you destroy all racers not having the <code>first_name</code> as <code>Sally</code>, you should end up with <code>0</code> matching the following query.</p>
+<div class="sourceCode"><pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; <span class="dt">Racer</span>.where(<span class="st">:first_name</span>.ne=&gt;<span class="st">&quot;Sally&quot;</span>).count
+ =&gt; <span class="dv">0</span></code></pre></div></li>
+</ol>
+<pre class="shell"><code>$ rspec spec/lecture3_spec.rb</code></pre>
+<h2 id="self-gradingfeedback">Self Grading/Feedback</h2>
+<p>Unit tests have been provided in the bootstrap files that can be used to evaluate your solution. They must be run from the same directory as your solution.</p>
+<pre class="shell"><code>$ rspec
+........
+
+(N) examples, 0 failures</code></pre>
+<h2 id="submission">Submission</h2>
+<p>There is no submission required for this assignment but the skills learned will be part of a follow-on assignment so please complete this to the requirements of the unit test.</p>
+<h2 id="last-updated-2016-01-02">Last Updated: 2016-01-02</h2>
