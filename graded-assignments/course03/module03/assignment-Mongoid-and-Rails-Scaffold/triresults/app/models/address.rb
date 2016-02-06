@@ -1,10 +1,14 @@
 class Address
   attr_accessor :city, :state, :location
 
-  def initialize(city, state, loc)
+  def initialize(city=nil, state=nil, loc=nil)
     @city = city
     @state = state
-    @location = Point.new(loc[:coordinates][0], loc[:coordinates][1])
+    if loc.nil?
+      @location = Point.new(0.0, 0.0)
+    else
+      @location = Point.new(loc[:coordinates][0], loc[:coordinates][1])
+    end
   end
 
   #creates a DB-form of the instance
@@ -31,7 +35,8 @@ class Address
   #takes in all forms of the object and produces a DB-friendly form
   def self.mongoize(object) 
     case object
-    when Address then object.mongoize
+    when Address then 
+      object.mongoize
     when Hash then 
       #if object[:type] #in GeoJSON Point format
       Address.new(object[:city], object[:state], object[:loc]).mongoize
