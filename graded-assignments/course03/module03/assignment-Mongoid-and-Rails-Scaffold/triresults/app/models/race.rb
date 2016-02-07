@@ -4,6 +4,8 @@ class Race
   field :n, as: :name, type: String
   field :date, as: :date, type: Date
   field :loc, as: :location, type: Address
+  field :next_bib, as: :next_bib, type: Integer, default: 0
+
   scope :upcoming, -> { where(:date.gte => Date.current)}
   scope :past, -> { where(:date.lt => Date.current)}
 
@@ -50,6 +52,45 @@ class Race
       object.send("#{action}=", name) 
       self.location=object
     end 
+  end
+
+  def next_bib
+    #self[:next_bib] = self[:next_bib] + 1
+    self[:next_bib] = self.inc(next_bib: 1)[:next_bib]
+  end
+
+  def get_group racer
+    if racer && racer.birth_year && racer.gender
+      quotient=(date.year-racer.birth_year)/10
+      min_age=quotient*10
+      max_age=((quotient+1)*10)-1
+      gender=racer.gender
+      name=min_age >= 60 ? "masters #{gender}" : "#{min_age} to #{max_age} (#{gender})"
+      Placing.demongoize(:name=>name) 
+    end
+  end
+
+  def create_entrant racer
+    entrant = Entrant.new
+    entrant.race = self.attributes.symbolize_keys.slice(:_id, :n, :date)
+    entrant.racer = racer.info.attributes
+    entrant.group = self.get_group racer
+    events.each do |event|
+      if event
+        entrant.send("#{event.name}=", event)
+      end
+    end
+    entrant.validate
+    if entrant.valid?
+      entrant.bib = next_bib
+      entrant.save
+    end
+    return entrant
+  end
+
+  def self.upcoming_available_to racer
+    upcoming_race_ids = racer.races.upcoming.pluck(:race).map {|r| r[:_id]}
+    self.upcoming.not_in(:id => upcoming_race_ids)
   end
 
   before_upsert do |doc|

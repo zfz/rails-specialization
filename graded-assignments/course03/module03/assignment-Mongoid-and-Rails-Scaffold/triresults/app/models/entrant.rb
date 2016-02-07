@@ -9,6 +9,9 @@ class Entrant
   field :gender, as: :gender, type: Placing
   field :group, as: :group, type: Placing
 
+  scope :upcoming, -> { where(:'race.date'.gte => Date.current)}
+  scope :past, -> { where(:'race.date'.lt => Date.current)}
+
   embeds_many :results, class_name: 'LegResult', order: [:"event.o".asc], after_add: :update_total
   embeds_one :race, class_name: 'RaceRef', autobuild: true
   embeds_one :racer, class_name: 'RacerInfo', as: :parent, autobuild: true
