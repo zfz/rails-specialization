@@ -63,6 +63,21 @@ class RacersController < ApplicationController
     end
   end
 
+  def create_entry
+    @racer=Racer.find(params[:racer_id])
+    @race=Race.find(params[:race_id])
+    @entrant=@race.create_entrant @racer
+    respond_to do |format|
+      if @entrant.valid?
+        format.html { redirect_to @racer, notice: 'Race entry was successfully created.' }
+        format.json { render :show, status: :created, location: @racer }
+      else
+        format.html { redirect_to @racer, notice: "Invalid registration #{@entrant.errors.messages}" }
+        format.json { render json: @entrant.errors, status: :unprocessable_entity }
+      end
+    end
+  end
+
   private
     # Use callbacks to share common setup or constraints between actions.
     def set_racer
