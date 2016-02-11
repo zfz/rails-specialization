@@ -1,0 +1,1171 @@
+<h1 id="module-4-summative-assignment-web-services">Module 4, Summative Assignment: Web Services</h1>
+<p>This assignment will evaluate your ability to implement a <a href="http://martinfowler.com/articles/richardsonMaturityModel.html">RMM Level Two (2) REST-based Web Service</a> consisting of:</p>
+<ul>
+<li>URIs</li>
+<li>URI, Query, and Post Data Parameters</li>
+<li>HTTP Methods</li>
+<li>Error Status Responses</li>
+<li>Representations with JSON and XML</li>
+<li>Resource Implementations with JSON</li>
+<li>Headers and Caching</li>
+<li>and an HTTP Client</li>
+</ul>
+<p>The functional goal of the assignment is to:</p>
+<ul>
+<li>Implement a REST-based Web Service to have access to <code>Race</code> and <code>Entrant</code> information by re-using the previous assignment's data tier and HTML page levels</li>
+<li>Implement <code>Race</code> result reporting through an HTTP Web Service interface using JSON</li>
+<li>Implement cache re-validation headers to limit the amount of server-side work required to keep client copies of race results up to date.</li>
+</ul>
+<p>This assignment requires you to base your solution from the &quot;triresults&quot; application you constructed in the previous module. The instructions of this assignment are focused at the HTTP level. However, you are free to also visualize your changes to the database using the web pages constructed in the previous assignment.</p>
+<p>The length of the assignment is partially due to the many examples shown throughout each section. The core of this assignment is within the Web Service tier. When relevant, you will be given solution <strong>hints</strong> to remind you of how things work in the data tier.</p>
+<h2 id="functional-requirements">Functional Requirements</h2>
+<ol style="list-style-type: decimal">
+<li><p>Implement web service access to get information for <code>racer</code> and <code>race</code> resources.</p></li>
+<li><p>Implement web service access to perform basic CRUD for <code>race</code>s.</p></li>
+<li><p>Implement error handling required to provide proper error feedback to web service clients.</p></li>
+<li><p>Implement web service access to obtain XML and JSON representations for <code>race</code>s.</p></li>
+<li><p>Implement web service access for race result reporting updates and status.</p></li>
+<li><p>Implement web caching to more efficiently keep web service clients in sync with results.</p></li>
+</ol>
+<h2 id="getting-started">Getting Started</h2>
+<ol style="list-style-type: decimal">
+<li><p>Start your MongoDB server using <code>mongod</code>.</p></li>
+<li><p>Create a copy of your <code>triresults</code> solution from the previous module to begin focusing on the web service requirements for this module.</p>
+<pre class="shell"><code>$ cp -r triresults (new_location)
+$ cd (new location)</code></pre></li>
+<li><p>Remove your rspec tests from the previous assignment.</p>
+<pre class="shell"><code>$ rm -rf spec/*</code></pre></li>
+<li><p>Optionally change your database. If you cloned the application with the original <code>config/mongoid.yml</code> file, the two applications will share the same database. If you decide to separate the two, edit the following lines.</p>
+<pre class="sourceCode yaml"><code class="sourceCode yaml"><span class="fu">development:</span>
+  <span class="fu">clients:</span>
+    <span class="fu">default:</span>
+      <span class="fu">database:</span> (new_name)_development
+<span class="fu">test:</span>
+  <span class="fu">clients:</span>
+    <span class="fu">default:</span>
+      <span class="fu">database:</span> (new_name)_test</code></pre></li>
+<li><p>Create an <code>app/services</code> directory for non-model and non-controller code.</p>
+<pre class="shell"><code>$ mkdir app/services</code></pre>
+<p>Add this directory to the <code>eager_load_paths</code> using the <code>config/application.rb</code> file. The extra step with the paths should not be necessary as Rails should automatically detect and load classes in any directory below <code>app</code>. However, we have seen issues with that functionality not working once Mongoid has been added. By adding the following line, you can guarantee the new directory path will be added.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby"><span class="co"># config/application.rb</span>
+<span class="dt">Mongoid</span>.load!(<span class="st">&#39;./config/mongoid.yml&#39;</span>)
+config.eager_load_paths +=<span class="ot"> %W(</span><span class="st"> #{config.root}/app/services </span><span class="ot">)</span></code></pre></li>
+<li><p>For testing purposes, edit the following settings in the <code>config/environments/test.rb</code> file from their default settings. Without these changes, the tests will detect runtime errors and fail before getting error pages and responses from the HTTP request. For example, a 404/NotFound status response may be the correct response for the test and without the changes below -- any 4xx or 5xx response will get blindly treated as a failure, regardless what status result the test is attempting to verify.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby"><span class="co"># config/environments/test.rb</span>
+<span class="co">#config.consider_all_requests_local       = true</span>
+config.consider_all_requests_local       = <span class="dv">false</span>
+
+<span class="co">#config.action_dispatch.show_exceptions = false</span>
+config.action_dispatch.show_exceptions = <span class="dv">true</span></code></pre></li>
+<li><p>Use the <code>rails console</code> during your development to invoke your solutions for the data tier. Remember to call <code>reload!</code> after making changes to your source code.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">$ rails c
+&gt; ...
+&gt; reload!
+&gt; ...</code></pre></li>
+<li><p>Download and extract the starter set of boostrap files for this assignment.</p>
+<pre class="shell"><code>student-start/
+|-- Gemfile
+|-- .rspec (an important hidden file)
+`-- spec
+    |-- ..._spec.rb
+    |-- ..._spec.rb
+    `-- data
+          |-- races.json
+          |-- racers.json
+          `-- results.json</code></pre>
+<ul>
+<li><p>Overwrite your existing Gemfile with the Gemfile from the bootstrap fileset. They should be nearly identical, but this is done to make sure the gems and versions you use in your solution can be processed by the automated grader when you submit. Any submission should be tested with this version of the file.</p>
+<p><strong>NOTE</strong> the Gemfile includes a section added for testing.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">group <span class="st">:test</span> <span class="kw">do</span>
+    gem <span class="st">&#39;rspec-rails&#39;</span>, <span class="st">&#39;~&gt; 3.0&#39;</span>
+    gem <span class="st">&#39;mongoid-rspec&#39;</span>, <span class="st">&#39;3.0.0&#39;</span>
+    gem <span class="st">&#39;capybara&#39;</span>
+<span class="kw">end</span></code></pre>
+<p>as well as a new definition for the following items:</p>
+<ul>
+<li><code>tzinfo-data</code> gem conditionally included on Windows platforms</li>
+<li><code>mongoid</code> gem used to implement your data tier</li>
+<li><code>httparty</code> gem will be used to implement client access to your web services</li>
+</ul>
+<pre class="sourceCode ruby"><code class="sourceCode ruby"><span class="co"># Windows does not include zoneinfo files, so bundle the tzinfo-data gem</span>
+gem <span class="st">&#39;tzinfo-data&#39;</span>, platforms: [<span class="st">:mingw</span>, <span class="st">:mswin</span>, <span class="st">:x64_mingw</span>, <span class="st">:jruby</span>]
+gem <span class="st">&#39;mongoid&#39;</span>, <span class="st">&#39;~&gt; 5.0.0&#39;</span>
+gem <span class="st">&#39;httparty&#39;</span></code></pre></li>
+<li><p>Add the provided json data files to your <code>db/</code> directory.</p></li>
+<li><p>Add the <code>spec/*.rb</code> files provided with the bootstrap fileset to a corresponding <code>spec/</code> directory within your <code>triresults</code> application. These files contain tests that will help determine whether you have completed the assignment. Be sure to also copy the hidden <code>.rspec</code> file in the root directory.</p></li>
+</ul></li>
+<li><p>Run the <code>bundle</code> command to make sure all gems are available.</p>
+<pre class="shell"><code>$ bundle</code></pre></li>
+<li><p>Ingest the sample data. This data will assist you as you build and test your solution. The data is time-sensitive, so repeat as necessary to continue to have upcoming races in the future.</p>
+<pre class="shell"><code>$ rake assignment:setup_data
+
+importing data...
+races=144, racers=1000, results=2880
+updating database: triresults_development
+updating race dates to current by (N) years
+updating birth years to current by (N) years
+updating creation and update times to (today)</code></pre>
+<p><strong>Note</strong> that the data ingested into the development database is not used for grading. The tests will generate new data in the test database. You can refresh your development database by repeating the above commands if you delete or insert data you wish to remove.</p></li>
+<li><p>Run the rspec test(s) to receive feedback. <code>rspec</code> must be run from the root directory of your application. There are several test files provided for this assignment. Many of those files are designed to test your code at specific points as you proceed through the technical requirements of this assignment. Initially, majority of tests will (obviously) fail until you complete the requirements necessary for them to pass.</p>
+<pre class="shell"><code>$ rspec 
+...
+(N) examples, (N) failures, (N) pending</code></pre>
+<p>To focus test feedback on a specific step of the requirements, add the specific file (path included) with the tests along with &quot;-e rq##&quot; to the rspec command line to only evaluate a specific requirement. Pad all step numbers to two digits.</p>
+<pre class="shell"><code>$ rspec spec/uri_spec.rb -e rq02
+...
+(N) examples, (N) failures, (N) pending</code></pre></li>
+<li><p>Implement your solution to the technical requirements and use the rspec tests to help verify your completed solution.</p></li>
+<li><p>Submit your Rails app solution for grading.</p></li>
+</ol>
+<h2 id="technical-requirements">Technical Requirements</h2>
+<p>If you do this assignment as it is intended, you will create all controller and view classes from scratch manually, without the aid of any <code>rails generate</code> template commands or wholesale copy/paste of files. You should end up with an implementation where everything added was for a need and, ideally, because you knew why it was needed and what it performs. The API interface is being developed separate from the HTML/UI interface so that you can focus more on serving web service clients.</p>
+<h3 id="uris">URIs</h3>
+<p>In this section you will implement a new URI in triresults and a new set of controller and view classes to focus on web service API implementation.</p>
+<ol style="list-style-type: decimal">
+<li><p>Create a set of custom URIs within Rails to serve as resources for posting and accessing race results using a web service interface. The actual names for the URL parameters (e.g., <code>:id</code>, <code>:racer_id</code>) are not important to satisfying this requirement since they will only be visible to your controller code. The resource URIs shall be:</p>
+<ul>
+<li><code>/api/races</code> - to represent the collection of races</li>
+<li><code>/api/races/:id</code> - to represent a specific race</li>
+<li><code>/api/races/:race_id/results</code> - to represent all results for the specific race</li>
+<li><code>/api/races/:race_id/results/:id</code> - to represent a specific results for the specific race</li>
+<li><code>/api/racers</code> - to represent the collection of racers</li>
+<li><code>/api/racers/:id</code> - to represent a specific racer</li>
+<li><code>/api/racers/:racer_id/entries</code> - to represent a the collection of race entries for a specific racer</li>
+<li><code>/api/racers/:racer_id/entries/:id</code> - to represent a specific race entry for a specific racer</li>
+<li>defined for at least GET access at this time. Do not yet worry about the implementation to back it.</li>
+</ul>
+<p><strong>Hint</strong>: The above step is achieved by configuring your <a href="http://edgeguides.rubyonrails.org/routing.html"><code>config/routes.rb</code></a> to have both -- new global resources for <code>Racer</code>s and <code>Race</code>s and a set of nested resources to represent the dual role of <code>Entrant</code>.</p>
+<p>You can test your solution by using <code>rake routes</code>. There is no rspec test for the URIs until a follow-on step.</p></li>
+<li><p>Without using <code>rails g</code> command (suggestion/recommendation - not graded), create (a set of) controllers and empty action methods to be the target of the URI action requests. The purpose of these empty methods is to just provide a complete path that maps the URI through to a method that you will implement later. By default, a resource with the following URI...</p>
+<pre class="uri"><code>/api/races</code></pre>
+<p>...will be mapped to the following target for GET requests.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">api/races<span class="co">#index</span></code></pre>
+<p>A target with that value needs to be matched with a RacesController class within the <code>api</code> namespace or module. A namespace can be implemented by placing your new controller class(es) in a sub-directory that matches the name of the controller in the action of the route.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby"><span class="co"># solution/app/controllers/api/races_controller.rb</span>
+<span class="kw">module</span> <span class="dt">Api</span>
+  <span class="kw">class</span> <span class="dt">RacesController</span> &lt; <span class="dt">ApplicationController</span>
+  <span class="kw">end</span>
+<span class="kw">end</span></code></pre>
+<p><strong>Note</strong> that you have full control to tweak your controller trees how you see fit as long as the externally visible URI remains as specified. To complete this step, you must have an action method defined in the controller(s) to be the routed target for each <code>GET</code> URI defined in the previous step (<strong>Hint</strong>: <code>index</code> and <code>show</code> would be the default method names for these).</p>
+<p><strong>Hint</strong>: Check your <code>log/test.log</code> during the rspec test or the server console output during development -- to see if there are any syntax errors being reported for your controller class(es) that prevent the step from passing.</p>
+<pre class="shell"><code>$ rspec spec/uri_spec.rb -e rq02</code></pre></li>
+<li><p>Provide implementations for the method stubs you created in the previous step to act as the target of GET requests to the URIs implemented above. The primary task here is to have an action in place that can receive the call and be able to understand the URI parameters passed. These controller actions must</p>
+<ul>
+<li>return a <code>200/OK</code> response and render a hard-coded plain text string that matches the URI used to call it.</li>
+<li>continue to perform the above functionality when more complete implementations are added in follow-on sections for GETs and the <code>Accept</code> format has not been specified</li>
+</ul>
+<p><strong>Hint</strong>: Wrap your initial implementations in a condition statement that will only fire when content-type is not specified. Place your real implementation in an else-block as this assignment implementation progresses. That way older tests won't fail when implementations are completed.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby"><span class="kw">def</span> show
+  <span class="kw">if</span> !request.accept || request.accept == <span class="st">&quot;*/*&quot;</span>
+    render plain: <span class="st">&quot;/api/racers/</span><span class="ot">#{</span>params[<span class="st">:racer_id</span>]<span class="ot">}</span><span class="st">/entries/</span><span class="ot">#{</span>params[<span class="st">:id</span>]<span class="ot">}</span><span class="st">&quot;</span>
+  <span class="kw">else</span>
+    <span class="co">#real implementation ...</span>
+  <span class="kw">end</span>
+<span class="kw">end</span></code></pre>
+<p><strong>Hint</strong>: Although you know the URI template used to invoke each of your actions, the intent is that you locate the URI parameters from the <code>params</code> hash available to your code within the controller. Try not to cheat by looking for the complete URI called from the request object made accessible to the controller.</p>
+<p>You can demonstrate your URI access using <code>rails console</code> and <code>HTTParty</code>. In a separate terminal, start your <code>rails server</code>. The following shows the controller returning a plain text response:</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; <span class="dt">HTTParty</span>.get(<span class="st">&quot;http://localhost:3000/api/races&quot;</span>).response.body
+ =&gt; <span class="st">&quot;/api/races&quot;</span> 
+&gt; <span class="dt">HTTParty</span>.get(<span class="st">&quot;http://localhost:3000/api/races/123&quot;</span>).response.body
+ =&gt; <span class="st">&quot;/api/races/123&quot;</span> 
+&gt; <span class="dt">HTTParty</span>.get(<span class="st">&quot;http://localhost:3000/api/races/123/results&quot;</span>).response.body
+ =&gt; <span class="st">&quot;/api/races/123/results&quot;</span> 
+&gt; <span class="dt">HTTParty</span>.get(<span class="st">&quot;http://localhost:3000/api/races/123/results/456&quot;</span>).response.body
+ =&gt; <span class="st">&quot;/api/races/123/results/456&quot;</span> 
+&gt; <span class="dt">HTTParty</span>.get(<span class="st">&quot;http://localhost:3000/api/racers&quot;</span>).response.body
+ =&gt; <span class="st">&quot;/api/racers&quot;</span> 
+&gt; <span class="dt">HTTParty</span>.get(<span class="st">&quot;http://localhost:3000/api/racers/abc&quot;</span>).response.body
+ =&gt; <span class="st">&quot;/api/racers/abc&quot;</span> 
+&gt; <span class="dt">HTTParty</span>.get(<span class="st">&quot;http://localhost:3000/api/racers/abc/entries&quot;</span>).response.body
+ =&gt; <span class="st">&quot;/api/racers/abc/entries&quot;</span> 
+&gt; <span class="dt">HTTParty</span>.get(<span class="st">&quot;http://localhost:3000/api/racers/abc/entries/def&quot;</span>).response.body
+ =&gt; <span class="st">&quot;/api/racers/abc/entries/def&quot;</span> </code></pre>
+<p>The above calls all returned 200/OK with a</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; response=<span class="dt">HTTParty</span>.get(<span class="st">&quot;http://localhost:3000/api/racers/abc/entries/def&quot;</span>)
+&gt; response.response
+ =&gt; <span class="co">#&lt;Net::HTTPOK 200 OK  readbody=true&gt; </span>
+&gt; response.content_type
+ =&gt; <span class="st">&quot;text/plain&quot;</span> </code></pre>
+<p>If you call a URI not implemented, you should get a 404 status response.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; response=<span class="dt">HTTParty</span>.get(<span class="st">&quot;http://localhost:3000/api/racers/abc/foobar/def&quot;</span>)
+&gt; response.response
+ =&gt; <span class="co">#&lt;Net::HTTPNotFound 404 Not Found  readbody=true&gt; </span></code></pre>
+<p><strong>Hint</strong>: If you fail the test because your application correctly returned a 404/NotFound for the bogus URI, then make sure you have updated your <code>config/environments/test.rb</code> file as described in the <code>Getting Started</code> section above.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby"><span class="dt">ActionController</span>::<span class="dt">RoutingError</span>:
+       <span class="dt">No</span> route matches [<span class="dt">GET</span>] <span class="st">&quot;/api/races/abc/foo/def&quot;</span></code></pre>
+<pre class="shell"><code>$ rspec spec/uri_spec.rb -e rq03</code></pre></li>
+<li><p>Implement a controller method to act as the target of POST requests to the <code>/api/races</code> URI implemented above. The primary task here is to have an action in place that can receive the call. This method must:</p>
+<ul>
+<li>render a <code>200/OK</code> response. The content of the response will not be checked. <strong>Hint</strong>: The following will render an empty response with a <code>200/OK</code> status response.</li>
+</ul>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">  render plain: <span class="st">:nothing</span>, status: <span class="st">:ok</span></code></pre>
+<ul>
+<li>continue to perform the above functionality when more complete implementations are added in the follow-on sections for POST and the <code>Accept</code> format has not been specified. <strong>Hint</strong>: The following will perform the requirements of this step when the <code>Accept</code> header is not supplied or has not been set to a specific MIME type.</li>
+</ul>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">  <span class="kw">if</span> !request.accept || request.accept == <span class="st">&quot;*/*&quot;</span>
+    render plain: <span class="st">:nothing</span>, status: <span class="st">:ok</span>
+  <span class="kw">else</span>
+    <span class="co">#real implementation</span>
+  <span class="kw">end</span></code></pre>
+<p><strong>Hint</strong>: Note that you must configure forgery protection in the controller class for the API to use when implementing POST HTTP method actions from web service clients.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">protect_from_forgery with: <span class="st">:null_session</span></code></pre>
+<p>You can demonstrate access to your new URI action using the rails console.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; response=<span class="dt">HTTParty</span>.post(<span class="st">&quot;http://localhost:3000/api/races&quot;</span>)
+&gt; response.response
+ =&gt; <span class="co">#&lt;Net::HTTPOK 200 OK  readbody=true&gt; </span></code></pre>
+<pre class="shell"><code>$ rspec spec/uri_spec.rb -e rq04</code></pre></li>
+<li><p>Implement a utility/service class in <code>app/services</code> called <code>TriResultsWS</code> that can act as our primary client interface to the API. This class must:</p>
+<ul>
+<li>include the <code>HTTParty</code> mixin</li>
+<li>declare a <code>base_uri</code> to reference your server (e.g., <code>http://localhost:3000</code>)</li>
+</ul>
+<p><strong>Hint</strong>: The following represents an implementation of this requirement. The class implementation also includes a declaration to output debug which will include the details of the HTTP message exchange.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby"><span class="co"># app/services/tri_results_ws.rb</span>
+<span class="kw">class</span> <span class="dt">TriResultsWS</span>
+  include <span class="dt">HTTParty</span>
+  debug_output <span class="dt">$stdout</span>
+  base_uri <span class="st">&quot;http://localhost:3000&quot;</span>
+<span class="kw">end</span></code></pre>
+<p>You can demonstrate your new web service client class using the rails console after a <code>reload!</code>. If you define <code>debug_output</code> for the class you can see the full HTTP exchange between the client and server. Feel free to work at the verbosity level that you are comfortable with.</p>
+<pre class="text"><code>&gt; reload!
+&gt; TriResultsWS.get(&quot;/api/races&quot;)
+opening connection to localhost:3000...
+opened
+&lt;- &quot;GET /api/races HTTP/1.1\r\n
+Accept-Encoding: gzip;q=1.0,deflate;q=0.6,identity;q=0.3\r\n
+Accept: */*\r\n
+User-Agent: Ruby\r\n
+Connection: close\r\n
+Host: localhost:3000\r\n\r\n&quot;
+
+-&gt; &quot;HTTP/1.1 200 OK \r\n&quot;
+-&gt; &quot;X-Frame-Options: SAMEORIGIN\r\n&quot;
+-&gt; &quot;X-Xss-Protection: 1; mode=block\r\n&quot;
+-&gt; &quot;X-Content-Type-Options: nosniff\r\n&quot;
+-&gt; &quot;Content-Type: text/plain; charset=utf-8\r\n&quot;
+-&gt; &quot;Etag: W/\&quot;b5dd0c9690b186a0e7629e3e9b2be60c\&quot;\r\n&quot;
+-&gt; &quot;Cache-Control: max-age=0, private, must-revalidate\r\n&quot;
+-&gt; &quot;X-Request-Id: f8fa9363-6ac8-44bf-8bd2-78bccf23c1bd\r\n&quot;
+-&gt; &quot;X-Runtime: 0.069018\r\n&quot;
+-&gt; &quot;Server: WEBrick/1.3.1 (Ruby/2.2.2/2015-04-13)\r\n&quot;
+-&gt; &quot;Date: Sun, 17 Jan 2016 02:07:55 GMT\r\n&quot;
+-&gt; &quot;Content-Length: 10\r\n&quot;
+-&gt; &quot;Connection: close\r\n&quot;
+-&gt; &quot;\r\n&quot;
+reading 10 bytes...
+-&gt; &quot;&quot;
+-&gt; &quot;/api/races</code></pre>
+<pre class="shell"><code>$ rspec spec/uri_spec.rb -e rq05</code></pre></li>
+</ol>
+<h3 id="query-parameters-and-post-data">Query Parameters and POST Data</h3>
+<p>In the previous section we demonstrated how we can cause certain actions to fire and be passed parameters within the URI. In this section we will expand our options and pass in query arguments thru two additional means:</p>
+<ul>
+<li>query parameters</li>
+<li>POST data</li>
+</ul>
+<ol style="list-style-type: decimal">
+<li><p>Update the controller for GET <code>/api/races</code> to handle a query string that represents paging parameters. This change must:</p>
+<ul>
+<li>extract the supplied <code>offset</code> and <code>limit</code> parameters also from the params object.</li>
+<li>append them to the returned text string, with values within square braces ([]) as shown in example format below <code>, offset=[#{}], limit=[#{}]</code></li>
+</ul>
+<p>You can demonstrate your handling of query parameters using the rails console. Pass the query parameters as a hash to HTTParty using the <code>:query</code> element.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; <span class="dt">TriResultsWS</span>.get(<span class="st">&quot;/api/races&quot;</span>,<span class="st">:query=</span>&gt;{<span class="st">:offset=</span>&gt;<span class="dv">4</span>,<span class="st">:limit=</span>&gt;<span class="dv">10</span>}).response.body
+ =&gt; <span class="st">&quot;/api/races, offset=[4], limit=[10]&quot;</span> </code></pre>
+<p>Notice from the HTTParty debug that the query parameters were passed to the server together with the URI</p>
+<pre class="text"><code>&lt;- &quot;GET /api/races?offset=4&amp;limit=10 </code></pre>
+<pre class="shell"><code>$ rspec spec/params_spec.rb -e rq01</code></pre></li>
+<li><p>Update the controller for POST <code>/api/races</code> to handle POST data. The payload will contain a <code>race</code> with the name property within a hash. Your method must:</p>
+<ul>
+<li><p>return a status of 200/OK, Content-Type <code>text/plain</code>, and the name of the <code>race</code> provided in the POST data. The following shows the structure of the posted payload with the <code>:name</code> field the method must return back.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">{<span class="st">:race=</span>&gt;{<span class="st">:name=</span>&gt;<span class="st">&quot;(race name)&quot;</span>}}</code></pre></li>
+<li><p>continue to perform the above functionality when more complete implementations are added in the follow-on sections for POST and the <code>Accept</code> format has not been specified. <strong>Hint</strong>: The following shows how this requirement can be latched to execute only when the <code>Accept</code> header is not specified or does not specify a specific MIME type.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby"><span class="kw">if</span> !request.accept || request.accept == <span class="st">&quot;*/*&quot;</span>
+  <span class="co">#return post params</span>
+<span class="kw">end</span></code></pre></li>
+</ul>
+<p>You can demonstrate your new method handling using the rails console. In the example, we are passing the properties in the body of the POST using the <code>:body</code> property in the call to HTTParty.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; response=<span class="dt">TriResultsWS</span>.post(<span class="st">&quot;/api/races&quot;</span>,<span class="st">:body=</span>&gt;{<span class="st">:race=</span>&gt;{<span class="st">:name=</span>&gt;<span class="st">&quot;Meager Mile&quot;</span>}})
+&gt; response.response
+ =&gt; <span class="co">#&lt;Net::HTTPOK 200 OK  readbody=true&gt; </span>
+&gt; response.body
+ =&gt; <span class="st">&quot;Meager Mile&quot;</span> </code></pre>
+<p>Notice from the HTTParty debug that, unlike the GET, the POST data is not passed with the URI. It is provided in the body of the POST and encoded (by HTTParty) using <code>application/x-www-form-urlencoded</code> encoding.</p>
+<pre class="text"><code>&lt;- &quot;POST /api/races ...
+Content-Type: application/x-www-form-urlencoded\r\n
+\r\n&quot;
+&lt;- &quot;race[name]=Meager%20Mile&quot;</code></pre>
+<p>Notice that we passed in a Ruby hash with no <code>Content-Type</code> specification in the previous example. HTTParty processed the hash into <code>form encoding</code> format (as if it where a call from an HTML form) and supplied a <code>Content-Type</code> specification stating it was <code>application/x-www-form-urlencoded</code> encoding. If we pass HTTParty straight JSON text, it will be sent unchanged but adds a <code>Content-Type</code> of <code>application/x-www-form-urlencoded</code>. Rails will <strong>NOT</strong> be able to parse the content and our POST method will not get the parameters it needs, resulting in an error response.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; response=<span class="dt">TriResultsWS</span>.post(<span class="st">&quot;/api/races&quot;</span>,
+                             <span class="st">:body=</span>&gt;{<span class="st">:race=</span>&gt;{<span class="st">:name=</span>&gt;<span class="st">&quot;Meager Mile&quot;</span>}}.to_json)
+&gt; response.body
+ =&gt; <span class="st">&quot;&quot;</span> </code></pre>
+<pre class="text"><code>&lt;- &quot;POST /api/races ...
+Content-Type: application/x-www-form-urlencoded\r\n
+\r\n&quot;
+&lt;- &quot;{\&quot;race\&quot;:{\&quot;name\&quot;:\&quot;Meager Mile\&quot;}}&quot;</code></pre>
+<p>If we do the opposite and pass a <code>Content-Type</code> without the <code>:body</code> element being a JSON string format already, we also get a header spec and format mis-match except this time we get an error because the server cannot parse the format we claimed the body was in.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; response=<span class="dt">TriResultsWS</span>.post(<span class="st">&quot;/api/races&quot;</span>,
+                             <span class="st">:body=</span>&gt;{<span class="st">:race=</span>&gt;{<span class="st">:name=</span>&gt;<span class="st">&quot;Meager Mile&quot;</span>}},
+                             <span class="st">:headers=</span>&gt;{<span class="st">&quot;Content-Type&quot;</span>=&gt;<span class="st">&quot;application/json&quot;</span>})
+&gt; response.response
+ =&gt; <span class="co">#&lt;Net::HTTPBadRequest 400 Bad Request  readbody=true&gt; </span></code></pre>
+<pre class="text"><code>&lt;- &quot;POST /api/races ...
+Content-Type: application/json\r\n
+\r\n&quot;
+&lt;- &quot;race[name]=Meager%20Mile&quot;</code></pre>
+<p>If we provide a JSON string in the <code>:body</code> and a matching <code>application/json</code> in the <code>:header</code> for <code>Content-Type</code>, our method can be called using a JSON POST body and works.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; response=<span class="dt">TriResultsWS</span>.post(<span class="st">&quot;/api/races&quot;</span>,
+                             <span class="st">:body=</span>&gt;{<span class="st">:race=</span>&gt;{<span class="st">:name=</span>&gt;<span class="st">&quot;Meager Mile&quot;</span>}}.to_json,
+                             <span class="st">:headers=</span>&gt;{<span class="st">&quot;Content-Type&quot;</span>=&gt;<span class="st">&quot;application/json&quot;</span>})
+&gt; response.response
+ =&gt; <span class="co">#&lt;Net::HTTPOK 200 OK  readbody=true&gt; </span>
+&gt; response.body
+ =&gt; <span class="st">&quot;Meager Mile&quot;</span> </code></pre>
+<pre class="text"><code>&lt;- &quot;POST /api/races ...
+Content-Type: application/json\r\n
+\r\n&quot;
+&lt;- &quot;{\&quot;race\&quot;:{\&quot;name\&quot;:\&quot;Meager Mile\&quot;}}&quot;</code></pre>
+<pre class="shell"><code>$ rspec spec/params_spec.rb -e rq02</code></pre></li>
+</ol>
+<h3 id="methods">Methods</h3>
+<p>In this section you are going to demonstrate a more complete vocabulary of HTTP method implementations using the data tier copied over from the previous module. In a previous section, you were required to expose specific URIs, but only required to implement GETs and a single POST. That left you many choices in how to proceed with the assignment. In this section you will need to have POST in place for the <code>api/races</code> URI and a GET, PUT, and DELETE in place for the <code>/api/races/:id</code> URI. You are not restricted in how you achieve the mapping from URI and HTTP Method to the controller#action as long as you have an action in place that provides the required behavior below.</p>
+<ol style="list-style-type: decimal">
+<li><p>Implement POST <code>/api/races</code> to create a new <code>Race</code> in the database. Note that some of the requirements listed are automatically done for you by the server. This action must:</p>
+<ul>
+<li>accept a JSON string in the POST body with name and date</li>
+</ul>
+<pre><code>&quot;{\&quot;race\&quot;:{\&quot;name\&quot;:\&quot;First Race\&quot;,\&quot;date\&quot;:\&quot;2016-01-17\&quot;}}&quot;</code></pre>
+<ul>
+<li>add a new <code>Race</code> to the database with that name and date</li>
+<li>return a <code>201/CREATED</code> status with a <code>text/plain</code> response with the race name. <strong>Hint</strong>: use <code>status: :created</code> to supply the non-default <code>201/CREATED</code> status.</li>
+</ul>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">render plain: name, status: <span class="st">:created</span></code></pre>
+<ul>
+<li>not eliminate the stub behavior implemented for these methods in the earlier URI and parameter sections when Accept is not supplied. (<strong>Hint</strong>: Implement this behavior when <code>request.accept</code> is not nil and not equal to <code>*/*</code>)</li>
+</ul>
+<p>You can test out your new implementation using the rails console. In the example below, we explicitly create a JSON formatted string with the <code>Race</code> data and then POST that information using the appropriate <code>Content-Type</code> in the header. Note that we must provide an <code>Accept</code> header to bypass our earlier stub implementations.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; json_string={race:{name:<span class="st">&quot;First Race&quot;</span>, date<span class="st">:Date</span>.current.iso8601}}.to_json
+ =&gt; <span class="st">&quot;{\&quot;race\&quot;:{\&quot;name\&quot;:\&quot;First Race\&quot;,\&quot;date\&quot;:\&quot;2016-01-17\&quot;}}&quot;</span> 
+&gt; response=<span class="dt">TriResultsWS</span>.post(<span class="st">&quot;/api/races&quot;</span>,
+                             <span class="st">:body=</span>&gt;json_string,
+                             <span class="st">:headers=</span>&gt;{<span class="st">&quot;Content-Type&quot;</span>=&gt;<span class="st">&quot;application/json&quot;</span>,
+                                        <span class="st">&quot;Accept&quot;</span>=&gt;<span class="st">&quot;text/plain&quot;</span>})</code></pre>
+<p>The response should be a <code>201/CREATED</code> and we should be able to locate the new <code>Race</code> in the database based in the inputs provided. If your response was <code>200/OK</code>, check that your controller logic is not falling into the stub implementation implemented earlier.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; response.response
+ =&gt; <span class="co">#&lt;Net::HTTPCreated 201 Created  readbody=true&gt; </span>
+<span class="fl">2.2</span>.<span class="dv">2</span> :<span class="dv">130</span> &gt; response.body
+ =&gt; <span class="st">&quot;First Race&quot;</span> 
+
+&gt; pp <span class="dt">Race</span>.find_by(<span class="st">:name=</span>&gt;<span class="st">&quot;First Race&quot;</span>, <span class="st">:date=</span>&gt;<span class="dt">Date</span>.current).attributes
+{<span class="st">&quot;_id&quot;</span>=&gt;<span class="dt">BSON</span>::<span class="dt">ObjectId</span>(<span class="st">&#39;569bd20ee301d0aa30000000&#39;</span>),
+ <span class="st">&quot;next_bib&quot;</span>=&gt;<span class="dv">0</span>,
+ <span class="st">&quot;n&quot;</span>=&gt;<span class="st">&quot;First Race&quot;</span>,
+ <span class="st">&quot;date&quot;</span>=&gt;<span class="dv">2016</span><span class="bn">-01</span><span class="dv">-17</span> <span class="dv">00</span>:<span class="dv">00</span>:<span class="dv">00</span> <span class="dt">UTC</span>,
+ <span class="st">&quot;updated_at&quot;</span>=&gt;<span class="dv">2016</span><span class="bn">-01</span><span class="dv">-17</span> <span class="dv">17</span>:<span class="dv">40</span>:<span class="dv">30</span> <span class="dt">UTC</span>,
+ <span class="st">&quot;created_at&quot;</span>=&gt;<span class="dv">2016</span><span class="bn">-01</span><span class="dv">-17</span> <span class="dv">17</span>:<span class="dv">40</span>:<span class="dv">30</span> <span class="dt">UTC</span>}</code></pre>
+<p><strong>Note</strong> there are several ways you could have tried to implement using the parameters to create the race and many of them likely failed due to a <code>ActiveModel::ForbiddenAttributesError</code>.</p>
+<ul>
+<li><strong>Passed explicit hash arguments</strong>: This would have worked but is verbose and undesirable as the number of arguments increase.</li>
+</ul>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">race=<span class="dt">Race</span>.create(<span class="st">:name=</span>&gt;params[<span class="st">:race</span>][<span class="st">:name</span>], <span class="st">:date=</span>&gt;params[<span class="st">:race</span>][<span class="st">:date</span>])</code></pre>
+<ul>
+<li><strong>Direct mass assignment</strong>: Here you know that <code>:race</code> should have two elements with the exact names you would have used to create this <code>Race</code> using Mongoid in the rails console. We can use the debugger or log statements to help demonstrate.</li>
+</ul>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">(byebug) params[<span class="st">:race</span>]
+{<span class="st">&quot;name&quot;</span>=&gt;<span class="st">&quot;First Race&quot;</span>, <span class="st">&quot;date&quot;</span>=&gt;<span class="st">&quot;2016-01-17&quot;</span>}
+race=<span class="dt">Race</span>.create(params[<span class="st">:race</span>])</code></pre>
+<p>This does not work because of security measures Rails has put into place to prevent callers from adding anything they want to the data tier thru the mass assignment technique that is common within Rails. If you look close in a debugger session, you will notice that the parameters are not a hash type.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">(byebug) params[<span class="st">:race</span>].class
+<span class="dt">ActionController</span>::<span class="dt">Parameters</span></code></pre>
+<p>ActiveModel implementations (i.e., Mongoid) will not accept parameters of this type that have not been inspected and white-listed for processing.</p>
+<ul>
+<li><strong>Hash mass assignment</strong>: We can bypass Rails security measures and blindly turn our <code>ActionController::Parameters</code> into a Ruby hash. This will work but leaves you open to every parameter passed in being passed to the model.</li>
+</ul>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">race=<span class="dt">Race</span>.create(params[<span class="st">:race</span>].to_hash)</code></pre>
+<p>You can fix that slightly using <code>slice</code>,</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">race=<span class="dt">Race</span>.create(params[<span class="st">:race</span>].to_hash.slice(<span class="st">:name</span>, <span class="st">:date</span>))</code></pre>
+<p>but Rails has a more standard approach to addressing this using white-listing</p>
+<ul>
+<li><strong>White-listed mass assignment</strong>: The <code>ActionController::Parameters</code> type has a set of methods (<code>require</code> and <code>permit</code>) that scale the parameters down to a set of white-listed values. A version of this was generated for you by <code>rails g</code> scaffold commands for the web pages generated in the previous module.</li>
+</ul>
+<pre><code>race=Race.create(race_params)
+...
+private
+  def race_params
+    params.require(:race).permit(:name, :date)
+  end</code></pre>
+<pre class="shell"><code>$ rspec spec/methods_spec.rb -e rq01</code></pre></li>
+<li><p>Implement GET <code>/api/races/:id</code> to retrieve an existing <code>Race</code> from the database. This action must:</p>
+<ul>
+<li>accept the ID of the <code>Race</code> as a URI parameter as designed in the URI design section of this assignment</li>
+<li>find the Race in the database</li>
+<li>return a 200/OK response and a rendering of the <code>Race</code> as JSON. <strong>Hint</strong>: You can have the default JSON rendering applied using the following in your method:</li>
+</ul>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">render json: race</code></pre>
+<ul>
+<li>not eliminate the stub behavior implemented for these methods in the earlier URI and parameter sections when Accept is not supplied. (<strong>Hint</strong>: Implement this behavior when <code>request.accept</code> is not nil and not equal to <code>*/*</code>)</li>
+</ul>
+<p>You can test your new method using the rails console. In the following example we locate a specific race in the database and use it in forming a URI passed in the GET to the server.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; race=<span class="dt">Race</span>.find_by(<span class="st">:name=</span>&gt;<span class="st">&quot;First Race&quot;</span>, <span class="st">:date=</span>&gt;<span class="dt">Date</span>.current)
+&gt; response=<span class="dt">TriResultsWS</span>.get(<span class="st">&quot;/api/races/</span><span class="ot">#{</span>race.id<span class="ot">}</span><span class="st">&quot;</span>,
+                            <span class="st">:headers=</span>&gt;{<span class="st">&quot;Accept&quot;</span>=&gt;<span class="st">&quot;application/json&quot;</span>})</code></pre>
+<p>The action returns a <code>200/OK</code> status with a <code>Content-Type</code> of <code>application/json</code> and a payload. <strong>Note</strong> that this is the default JSON rendering of the object from the database and contains database information we may or may not have wanted to be passed to the caller.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; response.response
+ =&gt; <span class="co">#&lt;Net::HTTPOK 200 OK  readbody=true&gt; </span>
+&gt; response.content_type
+ =&gt; <span class="st">&quot;application/json&quot;</span> 
+&gt; pp response.parsed_response
+{<span class="st">&quot;_id&quot;</span>=&gt;{<span class="st">&quot;$oid&quot;</span>=&gt;<span class="st">&quot;569bd20ee301d0aa30000000&quot;</span>},
+ <span class="st">&quot;created_at&quot;</span>=&gt;<span class="st">&quot;2016-01-17T17:40:30.540Z&quot;</span>,
+ <span class="st">&quot;date&quot;</span>=&gt;<span class="st">&quot;2016-01-17&quot;</span>,
+ <span class="st">&quot;loc&quot;</span>=&gt;<span class="dv">nil</span>,
+ <span class="st">&quot;n&quot;</span>=&gt;<span class="st">&quot;First Race&quot;</span>,
+ <span class="st">&quot;next_bib&quot;</span>=&gt;<span class="dv">2</span>,
+ <span class="st">&quot;updated_at&quot;</span>=&gt;<span class="st">&quot;2016-01-17T17:40:30.540Z&quot;</span>}</code></pre>
+<p>If you are receiving a <code>text/plain</code> response from the stub created in the earlier URI section, verify that you have properly updated your logic such that you perform real actions when an <code>Accept</code> header is provided.</p>
+<pre class="shell"><code>$ rspec spec/methods_spec.rb -e rq02</code></pre></li>
+<li><p>Execute HEAD <code>/api/races/:id</code> as an example of how you could determine if a race ID existed without having to receive a rendering of the race.</p>
+<p>You can demonstrate the use of HEAD with the rails console and the ID used in the previous step. <strong>Note</strong> that we still need to provide an <code>Accept</code> header otherwise we will fall back to the stub implementation implemented during the URI section.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; response=<span class="dt">TriResultsWS</span>.head(<span class="st">&quot;/api/races/</span><span class="ot">#{</span>race.id<span class="ot">}</span><span class="st">&quot;</span>,
+           <span class="st">:headers=</span>&gt;{<span class="st">&quot;Accept&quot;</span>=&gt;<span class="st">&quot;application/json&quot;</span>})
+&gt; response.response
+ =&gt; <span class="co">#&lt;Net::HTTPOK 200 OK  readbody=true&gt; </span>
+&gt; response.content_length
+ =&gt; <span class="dv">0</span> </code></pre>
+<p>You can also demonstrate when the resource cannot be found using this method.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; <span class="dt">TriResultsWS</span>.head(<span class="st">&quot;/api/races/bogus&quot;</span>,
+   <span class="st">:headers=</span>&gt;{<span class="st">&quot;Accept&quot;</span>=&gt;<span class="st">&quot;application/json&quot;</span>}).response
+ =&gt; <span class="co">#&lt;Net::HTTPNotFound 404 Not Found  readbody=true&gt; </span></code></pre>
+<p>There is no rspec test for this step.</p></li>
+<li><p>Implement PUT <code>/api/races/:id</code> to replace the values of a specific <code>Race</code>. Some of the requirements listed below are handled for you by the server. This action must:</p>
+<ul>
+<li>accept the ID of the <code>Race</code> as a URI parameter as designed in the URI design section of this assignment</li>
+<li>accept a JSON string in the payload data of the HTTP method</li>
+<li>replace the Race in the database with the supplied values.</li>
+<li>return a 200/OK response and a rendering of the <code>Race</code> as JSON.</li>
+</ul>
+<p><strong>Hint</strong>: You can have the default JSON rendering applied using the following in your method:</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">render json: race</code></pre>
+<p><strong>Hint</strong>: Avoid the <code>ActiveModel::ForbiddenAttributesError</code> error by re-using the same technique you used during POST to get white-listed values to pass to Mongoid.</p>
+<p>You can demonstrate your new action using the rails console. In the example below, we:</p>
+<ul>
+<li>locate a race in the database and verify its name.</li>
+<li>explicitly form a JSON string (from a hash) that has the new values we want the race replaced with.</li>
+<li>invoke PUT on the URI, providing the JSON string and <code>Content-Type</code></li>
+<li>receive a 200/OK status code indicating success</li>
+</ul>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; race=<span class="dt">Race</span>.find_by(<span class="st">:name=</span>&gt;<span class="st">&quot;First Race&quot;</span>, <span class="st">:date=</span>&gt;<span class="dt">Date</span>.current)                                                         
+&gt; race.name
+ =&gt; <span class="st">&quot;First Race&quot;</span> 
+&gt; json_string={race:{name:<span class="st">&quot;Modified Race&quot;</span>, date<span class="st">:Date</span>.current.iso8601}}.to_json                                        
+ =&gt; <span class="st">&quot;{\&quot;race\&quot;:{\&quot;name\&quot;:\&quot;Modified Race\&quot;,\&quot;date\&quot;:\&quot;2016-01-17\&quot;}}&quot;</span> 
+&gt; response=<span class="dt">TriResultsWS</span>.put(<span class="st">&quot;/api/races/</span><span class="ot">#{</span>race.id<span class="ot">}</span><span class="st">&quot;</span>,
+                            <span class="st">:body=</span>&gt;json_string,
+                            <span class="st">:headers=</span>&gt;{<span class="st">&quot;Content-Type&quot;</span>=&gt;<span class="st">&quot;application/json&quot;</span>})
+&gt; response.response
+ =&gt; <span class="co">#&lt;Net::HTTPOK 200 OK  readbody=true&gt; </span></code></pre>
+<p><strong>Note</strong> that an <code>Accept</code> header was not necessary since we did not implement a stub method for PUT commands and the controller implementation is hard-coded to return <code>application/json</code>. We can begin verifying success by inspecting the returned payload and note that the name (and date) have be replaced.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; response.content_type
+ =&gt; <span class="st">&quot;application/json&quot;</span> 
+&gt; pp response.parsed_response
+{<span class="st">&quot;_id&quot;</span>=&gt;{<span class="st">&quot;$oid&quot;</span>=&gt;<span class="st">&quot;569bd20ee301d0aa30000000&quot;</span>},
+ <span class="st">&quot;created_at&quot;</span>=&gt;<span class="st">&quot;2016-01-17T17:40:30.540Z&quot;</span>,
+ <span class="st">&quot;date&quot;</span>=&gt;<span class="st">&quot;2016-01-17&quot;</span>,
+ <span class="st">&quot;loc&quot;</span>=&gt;<span class="dv">nil</span>,
+ <span class="st">&quot;n&quot;</span>=&gt;<span class="st">&quot;Modified Race&quot;</span>,
+ <span class="st">&quot;next_bib&quot;</span>=&gt;<span class="dv">17</span>,
+ <span class="st">&quot;updated_at&quot;</span>=&gt;<span class="st">&quot;2016-01-17T19:47:54.990Z&quot;</span>}</code></pre>
+<p>We can also verify the state of the race by locating it directly within the database.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; <span class="dt">Race</span>.find(race.id).name
+ =&gt; <span class="st">&quot;Modified Race&quot;</span> 
+    &gt; pp <span class="dt">Race</span>.find(race.id).attributes
+{<span class="st">&quot;_id&quot;</span>=&gt;<span class="dt">BSON</span>::<span class="dt">ObjectId</span>(<span class="st">&#39;569bd20ee301d0aa30000000&#39;</span>),
+ <span class="st">&quot;next_bib&quot;</span>=&gt;<span class="dv">17</span>,
+ <span class="st">&quot;n&quot;</span>=&gt;<span class="st">&quot;Modified Race&quot;</span>,
+ <span class="st">&quot;date&quot;</span>=&gt;<span class="dv">2016</span><span class="bn">-01</span><span class="dv">-17</span> <span class="dv">00</span>:<span class="dv">00</span>:<span class="dv">00</span> <span class="dt">UTC</span>,
+ <span class="st">&quot;updated_at&quot;</span>=&gt;<span class="dv">2016</span><span class="bn">-01</span><span class="dv">-17</span> <span class="dv">19</span>:<span class="dv">47</span>:<span class="dv">54</span> <span class="dt">UTC</span>,
+ <span class="st">&quot;created_at&quot;</span>=&gt;<span class="dv">2016</span><span class="bn">-01</span><span class="dv">-17</span> <span class="dv">17</span>:<span class="dv">40</span>:<span class="dv">30</span> <span class="dt">UTC</span>}</code></pre>
+<p>One thing to note about the state of the database. You will notice that <code>next_bib</code> is greater than zero (0) even though we have not assigned a single <code>Entrant</code>. That is because the default JSON marshaller is calling the getter for <code>next_bib</code> each time we request the object and this is incrementing the <code>next_bib</code> value in the database.</p>
+<pre class="shell"><code>$ rspec spec/methods_spec.rb -e rq04</code></pre></li>
+<li><p><strong>Note</strong> that you can also invoke the same action as PUT with a PATCH command and determine which was actually being called by inspecting the <code>request</code>. PUT is meant to be a replacement and PATCH is meant to be a partial update. How you implement that is up to you but it can make a difference to an Internet cache when is sees a PUT (&quot;possibly cache - that will be the new state of the resource&quot;) versus a PATCH (&quot;don't cache -- that is only a partial update to the state of the resource&quot;). The easiest way to think of this is to consider a URI referencing a document and the PUT overwrites the document and the PATCH makes changes to the document.</p>
+<p>To verify this point, lets insert a debug statement in our action to print out the HTTP method called.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby"><span class="co"># PUT,PATCH /api/races/:id</span>
+<span class="kw">def</span> update
+  <span class="dt">Rails</span>.logger.debug(<span class="st">&quot;method=</span><span class="ot">#{</span>request.method<span class="ot">}</span><span class="st">&quot;</span>)
+  race=<span class="dt">Race</span>.find(params[<span class="st">:id</span>])</code></pre>
+<p>When we issue a PUT, we get a method=PUT in the rails server output. Although not always enabled for a URI -- an intermediate Internet cache between the callers and this service may believe the state passed in is a full replacement for what will be served by the next GET.</p>
+<pre class="text"><code>Started PUT &quot;/api/races/569c01b2e301d0cbcf000001&quot; for 127.0.0.1 at 2016-01-17 16:15:52 -0500
+Processing by Api::RacesController#update as HTML
+  Parameters: {&quot;race&quot;=&gt;{&quot;name&quot;=&gt;&quot;Modified Race&quot;, &quot;date&quot;=&gt;&quot;2016-01-17&quot;}, &quot;id&quot;=&gt;&quot;569c01b2e301d0cbcf000001&quot;}
+Can&#39;t verify CSRF token authenticity
+method=PUT</code></pre>
+<p>When we issue a PATCH, we get a method=PATCH in the rails server output. This will allow us to receive partial updates and apply them accordingly and the intermediate Internet caches will know the incoming state was not a full replacement.</p>
+<pre class="text"><code>Started PATCH &quot;/api/races/569c01b2e301d0cbcf000001&quot; for 127.0.0.1 at 2016-01-17 16:15:59 -0500
+Processing by Api::RacesController#update as HTML
+  Parameters: {&quot;race&quot;=&gt;{&quot;name&quot;=&gt;&quot;Modified Race&quot;, &quot;date&quot;=&gt;&quot;2016-01-17&quot;}, &quot;id&quot;=&gt;&quot;569c01b2e301d0cbcf000001&quot;}
+Can&#39;t verify CSRF token authenticity
+method=PATCH</code></pre>
+<p>There are no tests for this step.</p></li>
+<li><p>Implement DELETE <code>/api/races/:id</code> to destroy the race associated with that specific <code>Race</code> ID. Some of the requirements listed below are automatically handled for you by the server. This action must:</p>
+<ul>
+<li>accept the ID of the <code>Race</code> as a URI parameter as designed in the URI design section of this assignment</li>
+<li>remove the race with the supplied ID from the database</li>
+<li>return a 204/NO-CONTENT response without any content in the response <strong>Hint</strong>: You can have the default JSON rendering applied using the following in your method:</li>
+</ul>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">render <span class="st">:nothing=</span>&gt;<span class="dv">true</span>, <span class="st">:status</span> =&gt; <span class="st">:no_content</span></code></pre>
+<p>You can test your new action using the rails console. In the example below, we</p>
+<ul>
+<li>verify that our race is still in the database</li>
+<li>issue a DELETE on the URI for the race</li>
+<li>check the response is a 2xx-level response, indicating success and 204/NO CONTENT indicating success with no provided response</li>
+<li>verified the race is no long in the database</li>
+</ul>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; <span class="dt">Race</span>.where(<span class="st">:id=</span>&gt;race.id).first.name
+ =&gt; <span class="st">&quot;Modified Race&quot;</span>
+
+&gt; response=<span class="dt">TriResultsWS</span>.delete(<span class="st">&quot;/api/races/</span><span class="ot">#{</span>race.id<span class="ot">}</span><span class="st">&quot;</span>)
+&gt; response.response
+ =&gt; <span class="co">#&lt;Net::HTTPNoContent 204 No Content  readbody=true&gt; </span>
+
+&gt; <span class="dt">Race</span>.where(<span class="st">:id=</span>&gt;race.id).first
+ =&gt; <span class="dv">nil</span> </code></pre>
+<pre class="shell"><code>$ rspec spec/methods_spec.rb -e rq06</code></pre></li>
+</ol>
+<h3 id="error-conditions">Error Conditions</h3>
+<p>Up to this point we have been focusing on the &quot;happy path&quot; and satisfied when we get the correct responses for correct inputs. However, you likely noticed that when errors did occur, the web service client receives some unwanted information -- especially in the Rails development environment profile. In this section you will be asked to address error conditions in a way that provides the API caller with a clean error response instead of an HTML page dump.</p>
+<p>As setup for this section, observe the default response to a PUT request for a race that does not exist. Notice we correctly received a 404/NOT FOUND, but we also received 97,566 bytes of HTML text -- which is of no use to a web service client.</p>
+<pre><code>&gt; response=TriResultsWS.put(&quot;/api/races/foobar&quot;,
+                            :body=&gt;json_string,:headers=&gt;{&quot;Content-Type&quot;=&gt;&quot;application/json&quot;})
+&gt; response.response
+ =&gt; #&lt;Net::HTTPNotFound 404 Not Found  readbody=true&gt; 
+&gt; response.content_length
+ =&gt; 97566 
+&gt; response.content_type
+ =&gt; &quot;text/html&quot; </code></pre>
+<ol style="list-style-type: decimal">
+<li><p>Add rescue handling such that the exception thrown by Mongoid when a document is not found returns a <code>text/plain</code> message with the ID of the document asked for. This response must:</p>
+<ul>
+<li>return a 404/NOT FOUND status code with a text/plain Content-Type and a text error message with the identity of the race requested located inside the text using the format <code>race[:id]</code>. Example:</li>
+</ul>
+<pre class="text"><code>woops: cannot find race[foobar]</code></pre>
+<p><strong>Hint</strong>: You can add a rescue block per method or you can also address the requirement using a global <a href="http://api.rubyonrails.org/classes/ActiveSupport/Rescuable/ClassMethods.html#method-i-rescue_from"><code>rescue_from</code></a> construct within your controller class. <strong>Note</strong> that you can usually locate the specific exception thrown by looking at the server log.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">rescue_from <span class="dt">Mongoid</span>::<span class="dt">Errors</span>::<span class="dt">DocumentNotFound</span> <span class="kw">do</span> |exception|
+    render plain: <span class="st">&quot;woops: cannot find race[</span><span class="ot">#{</span>params[<span class="st">:id</span>]<span class="ot">}</span><span class="st">]&quot;</span>, status: <span class="st">:not_found</span>
+<span class="kw">end</span></code></pre>
+<p>You can demonstrate your handling of &quot;race not found&quot; error using the rails console. In the following example, we</p>
+<ul>
+<li>attempt to update a race that does not exist using a PUT</li>
+<li>receive a 404/NOT FOUND as we did before</li>
+<li>receive text/plain with an error message better suited for a web service client</li>
+<li>within the error message is the required pattern of <code>race[:id]</code> with <code>:id</code> being the race we requested</li>
+</ul>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; response=<span class="dt">TriResultsWS</span>.patch(<span class="st">&quot;/api/races/foobar&quot;</span>,
+              <span class="st">:body=</span>&gt;json_string,<span class="st">:headers=</span>&gt;{<span class="st">&quot;Content-Type&quot;</span>=&gt;<span class="st">&quot;application/json&quot;</span>})
+&gt; response.response
+ =&gt; <span class="co">#&lt;Net::HTTPNotFound 404 Not Found  readbody=true&gt; </span>
+&gt; response.content_type
+ =&gt; <span class="st">&quot;text/plain&quot;</span> 
+&gt; response.content_length
+ =&gt; <span class="dv">31</span> 
+&gt; response.body
+ =&gt; <span class="st">&quot;woops: cannot find race[foobar]&quot;</span> </code></pre>
+<pre class="shell"><code>$ rspec spec/errors_spec.rb</code></pre></li>
+</ol>
+<h3 id="representations">Representations</h3>
+<p>This section you will focus on rendering different representation formats from your web service. Up to now we have limited the output to text/plain with a minor amount of JSON. This was hard-coded in some of the hints provided in this assignment. Examples:</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">render plain: name, status: <span class="st">:created</span>
+render json: race</code></pre>
+<p>In this section we are going to keep the renderings simple, but expand it such that the client can control what <code>Content-Type</code> they receive based on runtime requests and what is implemented by the web service. You are required to support both <code>application/json</code> and <code>application/xml</code> <code>Content-Type</code>s.</p>
+<p>Since the solution will be evaluated from the API client-perspective, you are not constrained in how you implement the rendering decisions. The lecture demonstrated a way to keep the rendering format separate from the controller in the <a href="https://github.com/jhu-ep-coursera/fullstack-course3-module4-wsmovies/blob/master/app/controllers/hello_controller.rb"><code>HelloController</code></a>. The <a href="http://apidock.com/rails/ActionController/Base/render"><code>render documentation</code></a> will also be of some help. The following builders will also be of interest</p>
+<ul>
+<li><a href="http://github.com/rails/jbuilder#jbuilder"><code>JSON JBuilder</code></a></li>
+<li><a href="http://api.rubyonrails.org/classes/ActionView/Base.html"><code>XML Builder</code></a></li>
+</ul>
+<p>The rails scaffold generator does mostly the same thing except it is complicated by the re-directs required by the web page access. The beauty of using the separate API class is that we can separate ourselves from the details of web page navigation and concentrate on completing actions.</p>
+<ol style="list-style-type: decimal">
+<li><p>Respond to a GET <code>/api/races/:id</code> request using an XML rendering of the requested race when the request contains an <code>Accept:application/xml</code> header. This action must:</p>
+<ul>
+<li>be invoked using GET <code>/api/races/:id</code></li>
+<li>locate the requested <code>Race</code> by ID</li>
+<li>return a 404/NOT FOUND status with an XML-formatted error message containing some error text in a root-level element called <code>msg</code> when not found. Example:</li>
+</ul>
+<pre class="sourceCode xml"><code class="sourceCode xml">  <span class="kw">&lt;error&gt;</span>
+    <span class="kw">&lt;msg&gt;</span>woops: cannot find race[foobar]<span class="kw">&lt;/msg&gt;</span>
+  <span class="kw">&lt;/error&gt;</span></code></pre>
+<ul>
+<li>return a 200/OK status with an XML-formatted message containing a representation of the requested <code>Race</code> with minimum of <code>name</code> and <code>date</code> elements at the root level below a <code>race</code> element. Example:</li>
+</ul>
+<pre class="sourceCode xml"><code class="sourceCode xml">  <span class="kw">&lt;race&gt;</span>
+    <span class="kw">&lt;name&gt;</span>Upper Tract Iron<span class="kw">&lt;/name&gt;</span>
+    <span class="kw">&lt;date&gt;</span>2014-10-20<span class="kw">&lt;/date&gt;</span>
+  <span class="kw">&lt;/race&gt;</span></code></pre>
+<p><strong>Hint</strong>: To get started, you are going to want to remove any pre-determined, hard-coded rendering configuration in your controller and make rendering decisions based on the <code>Accept</code> header.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby"><span class="co">#render json: race</span>
+render race</code></pre>
+<p>The <code>sayhello</code> example expressed that thru <a href="https://github.com/jhu-ep-coursera/fullstack-course3-module4-wsmovies/tree/master/app/views/hello">different views</a>.</p>
+<p>You can demonstrate your ability to provide XML content when the client provides an <code>Accept</code> header in the request for a GET using the rails console. In this example we</p>
+<ul>
+<li>obtain a valid race from the database</li>
+<li>display the race name</li>
+<li>request the race from the API, supplying the ID of the race in the URI and the <code>Accept</code> header stating we would only take XML.</li>
+</ul>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; race=<span class="dt">Race</span>.first              
+&gt; race.name
+ =&gt; <span class="st">&quot;Upper Tract Iron&quot;</span>
+&gt; response=<span class="dt">TriResultsWS</span>.get(<span class="st">&quot;/api/races/</span><span class="ot">#{</span>race.id<span class="ot">}</span><span class="st">&quot;</span>,
+                            <span class="st">:headers=</span>&gt;{<span class="st">&quot;Accept&quot;</span>=&gt;<span class="st">&quot;application/xml&quot;</span>})</code></pre>
+<p>We received:</p>
+<ul>
+<li>a 200/OK status message telling us our request was satisfied</li>
+<li>a <code>Content-Type</code> of <code>application/xml</code> telling us the format of the body of the response</li>
+<li>an XML payload body with the required name and date in root-level elements</li>
+</ul>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; response.response
+ =&gt; <span class="co">#&lt;Net::HTTPOK 200 OK  readbody=true&gt; </span>
+&gt; response.content_type
+ =&gt; <span class="st">&quot;application/xml&quot;</span> 
+&gt; y response.body
+--- |-
+  &lt;race&gt;
+    &lt;name&gt;<span class="dt">Upper</span> <span class="dt">Tract</span> <span class="dt">Iron</span>&lt;<span class="ot">/name&gt;</span>
+<span class="ot">    &lt;date&gt;2014-10-20&lt;/</span>date&gt;
+  &lt;<span class="ot">/race&gt;</span></code></pre>
+<p><strong>Hint</strong>: In an earlier section you added a rescue block that had hard-coded the response content type to <code>text/plain</code>. To complete this step, you should conditionally execute the previous implementation in the absence of an <code>Accept</code> header or a specific mime type in the header.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby"><span class="kw">if</span> !request.accept || request.accept == <span class="st">&quot;*/*&quot;</span>
+  render plain: <span class="st">&quot;woops: cannot find race[</span><span class="ot">#{</span>params[<span class="st">:id</span>]<span class="ot">}</span><span class="st">]&quot;</span>, status: <span class="st">:not_found</span>
+<span class="kw">else</span> 
+  <span class="co">#Accept-specific response here</span>
+<span class="kw">end</span></code></pre>
+<p><strong>Hint</strong>: One way you could implement the Accept-specific implementation is to define the return status and message information independent of the returned type. In this specific example, there would be a <code>app/views/api/error_msg.xml.builder</code> in place to accept the inputs and render a result.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">render <span class="st">:status=</span>&gt;<span class="st">:not_found</span>, 
+       <span class="st">:template=</span>&gt;<span class="st">&quot;api/error_msg&quot;</span>, 
+       <span class="st">:locals=</span>&gt;{ <span class="st">:msg=</span>&gt;<span class="st">&quot;woops: cannot find race[</span><span class="ot">#{</span>params[<span class="st">:id</span>]<span class="ot">}</span><span class="st">]&quot;</span>}</code></pre>
+<p>If we issue a race ID that does not exist:</p>
+<ul>
+<li>a 404/NOT FOUND status is returned</li>
+<li>Content-Type is set to <code>application/xml</code></li>
+<li>an error message is supplied in XML format</li>
+</ul>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; response=<span class="dt">TriResultsWS</span>.get(<span class="st">&quot;/api/races/foobar&quot;</span>,
+                            <span class="st">:headers=</span>&gt;{<span class="st">&quot;Accept&quot;</span>=&gt;<span class="st">&quot;application/xml&quot;</span>})
+&gt; response.response
+ =&gt; <span class="co">#&lt;Net::HTTPNotFound 404 Not Found  readbody=true&gt; </span>
+&gt; response.content_type
+ =&gt; <span class="st">&quot;application/xml&quot;</span> 
+&gt; y response.body
+--- |-
+  &lt;error&gt;
+    &lt;msg&gt;woops: cannot find race[foobar]&lt;<span class="ot">/msg&gt;</span>
+<span class="ot">  &lt;/</span>error&gt;</code></pre>
+<pre class="shell"><code>$ rspec spec/representations_spec.rb -e rq01</code></pre></li>
+<li><p>Respond to a GET <code>/api/races/:id</code> request using an JSON rendering of the requested race when the request contains an <code>Accept:application/json</code> header. Functionally this may be the same as what you quickly implemented with <code>render :json</code> in earlier steps, but the implementation here must be within a framework that allows the caller to specify the desired content-type rather than hard-coding the value in the action. This action must:</p>
+<ul>
+<li>be invoked using GET <code>/api/races/:id</code></li>
+<li>locate the requested <code>Race</code> by ID</li>
+<li>return a 404/NOT FOUND status with an JSON-formatted error message containing some error text in a root-level property called <code>msg</code> when not found. Example:</li>
+</ul>
+<pre class="sourceCode json"><code class="sourceCode json">{<span class="dt">&quot;msg&quot;</span><span class="er">=&gt;</span><span class="dt">&quot;woops: cannot find race[foobar]&quot;</span>}</code></pre>
+<ul>
+<li>return a 200/OK status with an JSON-formatted message containing a representation of the requested <code>Race</code> with minimum of <code>name</code> and <code>date</code> properties at the root level. Example:</li>
+</ul>
+<pre class="sourceCode json"><code class="sourceCode json">{<span class="dt">&quot;name&quot;</span><span class="er">=&gt;</span><span class="dt">&quot;Upper Tract Iron&quot;</span>, <span class="dt">&quot;date&quot;</span><span class="er">=&gt;</span><span class="dt">&quot;2014-10-20&quot;</span>}</code></pre>
+<p>You can demonstrate your ability to provide JSON content when the client provides an <code>Accept</code> header in the request for a GET using the rails console. In this example we</p>
+<ul>
+<li>obtain a valid race from the database</li>
+<li>display the race name</li>
+<li>request the race from the API, supplying the ID of the race in the URI and the <code>Accept</code> header stating we would only take JSON.</li>
+</ul>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; race=<span class="dt">Race</span>.first              
+&gt; race.name
+ =&gt; <span class="st">&quot;Upper Tract Iron&quot;</span>
+&gt; response=<span class="dt">TriResultsWS</span>.get(<span class="st">&quot;/api/races/</span><span class="ot">#{</span>race.id<span class="ot">}</span><span class="st">&quot;</span>,
+                            <span class="st">:headers=</span>&gt;{<span class="st">&quot;Accept&quot;</span>=&gt;<span class="st">&quot;application/json&quot;</span>})</code></pre>
+<p>We received:</p>
+<ul>
+<li>a 200/OK status message telling us our request was satisfied</li>
+<li>a <code>Content-Type</code> of <code>application/json</code> telling us the format of the body of the response</li>
+<li>an JSON payload body with the required name and date in root-level elements</li>
+</ul>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; response.response
+ =&gt; <span class="co">#&lt;Net::HTTPOK 200 OK  readbody=true&gt; </span>
+&gt; response.content_type
+ =&gt; <span class="st">&quot;application/json&quot;</span> 
+&gt; response.parsed_response
+ =&gt; {<span class="st">&quot;name&quot;</span>=&gt;<span class="st">&quot;Upper Tract Iron&quot;</span>, <span class="st">&quot;date&quot;</span>=&gt;<span class="st">&quot;2014-10-20&quot;</span>} </code></pre>
+<p>If we issue a race ID that does not exist:</p>
+<ul>
+<li>a 404/NOT FOUND status is returned</li>
+<li>Content-Type is set to <code>application/json</code></li>
+<li>an error message is supplied in JSON format</li>
+</ul>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; response=<span class="dt">TriResultsWS</span>.get(<span class="st">&quot;/api/races/foobar&quot;</span>,
+                            <span class="st">:headers=</span>&gt;{<span class="st">&quot;Accept&quot;</span>=&gt;<span class="st">&quot;application/json&quot;</span>})
+&gt; response.response
+ =&gt; <span class="co">#&lt;Net::HTTPNotFound 404 Not Found  readbody=true&gt; </span>
+&gt; response.content_type
+ =&gt; <span class="st">&quot;application/json&quot;</span> 
+&gt; response.parsed_response
+ =&gt; {<span class="st">&quot;msg&quot;</span>=&gt;<span class="st">&quot;woops: cannot find race[foobar]&quot;</span>}</code></pre>
+<pre class="shell"><code>$ rspec spec/representations_spec.rb -e rq02</code></pre></li>
+<li><p>Respond to a GET <code>/api/races/:id</code> request using a plain text rendering when the formats in the <code>Accept</code> header are not supported. You can make this another <code>rescue_from</code> case -- as you did in the previous section on reporting errors. Your action must:</p>
+<ul>
+<li>return a <code>415/UNSUPPORTED MEDIA TYPE</code> status with a <code>text/plain</code> error message stating the mime type requested in square brackets (i.e, content-type[#{request.accept}]) when the caller supplies an <code>Accept</code> header with no supported MIME types. Example:</li>
+</ul>
+<pre class="text"><code>woops: we do not support that content-type[application/foobar]</code></pre>
+<ul>
+<li>return a <code>200/OK</code> when the <code>Accept</code> header contains unsupported media types mixed with a supported media type. The response type will be the supported type.</li>
+</ul>
+<p><strong>Hint</strong>: This should only require 2-3 lines of code to implement. If you find yourself implementing entire algorithms, stop and review the lecture materials and examples.</p>
+<p><strong>Hint</strong>: Note that the rescue syntax allows for the block to receive the exception. If you do nothing with that exception you will likely loose useful information in locating the source of a problem. It is suggested that you log the exception to restore some of the useful default behavior.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">rescue_from <span class="dt">ActionView</span>::<span class="dt">MissingTemplate</span> <span class="kw">do</span> |exception|
+  <span class="dt">Rails</span>.logger.debug exception
+...</code></pre>
+<p>You can demonstrate your new <code>Accept</code> content type error handling using the rails console. In this example we have provided a valid race ID, but an unsupported MIME type. The error response is returned as a <code>415/UNSUPPORTED MEDIA TYPE</code> and the message we generated states the format requested.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; race=<span class="dt">Race</span>.first
+&gt; response=<span class="dt">TriResultsWS</span>.get(<span class="st">&quot;/api/races/</span><span class="ot">#{</span>race.id<span class="ot">}</span><span class="st">&quot;</span>,
+                            <span class="st">:headers=</span>&gt;{<span class="st">&quot;Accept&quot;</span>=&gt;<span class="st">&quot;application/foobar&quot;</span>})
+&gt; response.response
+ =&gt; <span class="co">#&lt;Net::HTTPUnsupportedMediaType 415 Unsupported Media Type  readbody=true&gt; </span>
+&gt; response.content_type
+ =&gt; <span class="st">&quot;text/plain&quot;</span> 
+&gt; response.body
+ =&gt; <span class="st">&quot;woops: we do not support that content-type[application/foobar]&quot;</span> </code></pre>
+<p>If we combine the unsupported type with a supported type, Rails will use the supported type.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; response=<span class="dt">TriResultsWS</span>.get(<span class="st">&quot;/api/races/</span><span class="ot">#{</span>race.id<span class="ot">}</span><span class="st">&quot;</span>,
+                            <span class="st">:headers=</span>&gt;{<span class="st">&quot;Accept&quot;</span>=&gt;<span class="st">&quot;application/foobar,application/json&quot;</span>})
+&gt; response.response
+ =&gt; <span class="co">#&lt;Net::HTTPOK 200 OK  readbody=true&gt; </span>
+&gt; response.content_type
+ =&gt; <span class="st">&quot;application/json&quot;</span> 
+&gt; response.parsed_response
+ =&gt; {<span class="st">&quot;name&quot;</span>=&gt;<span class="st">&quot;Upper Tract Iron&quot;</span>, <span class="st">&quot;date&quot;</span>=&gt;<span class="st">&quot;2014-10-20&quot;</span>} </code></pre>
+<p><strong>Note</strong> there are still some error cases that are beyond this assignment. Take into consideration the case where a client requests an invalid <code>Race</code> and an unsupported MIME type. The <code>404/NOT FOUND</code> exception handling can throw an exception itself if it cannot locate a content to render the error message. That may add complications to your error handlers or require errors be reported in a standard format.</p>
+<pre class="shell"><code>$ rspec spec/representations_spec.rb -e rq03</code></pre></li>
+</ol>
+<h3 id="resource-implementation-json">Resource Implementation (JSON)</h3>
+<p>In this section we will concentrate on implementing what is needed to get race results from the API. In an earlier section, you designed a <code>/api/race/:race_id/results</code> in order to represent the collection of results for a race. Now we want to implement a GET of results for at least JSON. Since there were no internal design requirements of how you implemented your controller(s), you will need to translate some of the hints to your specific situation.</p>
+<ol style="list-style-type: decimal">
+<li><p>Update the controller method that is implementing the action for GET <code>/api/races/:race_id/results/:id</code> so that it finds the specified <code>Entrant</code>. This action must:</p>
+<ul>
+<li>obtain the <code>:race_id</code> and (<code>Entrant</code>) <code>:id</code> provided in the URI</li>
+<li>find the <code>Entrant</code> in the database</li>
+<li>make the <code>Entrant</code> available to the view</li>
+</ul>
+<p><strong>Hint</strong>: the following snippet will be of use in locating the <code>Entrant</code> in the database.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby"><span class="ot">@result</span>=<span class="dt">Race</span>.find(params[<span class="st">:race_id</span>]).entrants.where(<span class="st">:id=</span>&gt;params[<span class="st">:id</span>]).first</code></pre>
+<p>What you are now adding should implement the stub created earlier when no <code>Accept</code> header was supplied.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">  <span class="kw">if</span> !request.accept || request.accept == <span class="st">&quot;*/*&quot;</span>
+    render plain: <span class="st">&quot;/api/races/</span><span class="ot">#{</span>params[<span class="st">:race_id</span>]<span class="ot">}</span><span class="st">/results/</span><span class="ot">#{</span>params[<span class="st">:id</span>]<span class="ot">}</span><span class="st">&quot;</span>
+  <span class="kw">else</span>
+    <span class="co">#real implemenation goes here</span>
+  <span class="kw">end</span></code></pre>
+<p>If you used a partial to implement the view for an <code>Entrant</code> result, then a partial called <code>_result.json.jbuilder</code> could get invoked using the following:</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">render <span class="st">:partial=</span>&gt;<span class="st">&quot;result&quot;</span>, <span class="st">:object=</span>&gt;<span class="ot">@result</span></code></pre>
+<p>At the completion of this step you should either be:</p>
+<ul>
+<li>manually calling a view similar to how the <a href="https://github.com/jhu-ep-coursera/fullstack-course3-module4-wsmovies/blob/master/app/controllers/hello_controller.rb"><code>HelloController#say method</code></a> worked in the class examples.</li>
+<li>using automatic routing the way the <code>HelloController#sayhello</code> worked in the class examples.</li>
+</ul>
+<p>With that in place, you likely are getting an error stating a 404/NOT FOUND on the client-side and a template or partial not found on the server-side.</p>
+<p>There is no test for this step.</p></li>
+<li><p>Implement an <code>XXX.json.jbuilder</code> script to act as the view that the above controller is trying to render. We will use a custom view so that we can better control what goes into the data marshalled back to the client. The document returned to the client must have:</p>
+<ul>
+<li><code>place</code> - overall place</li>
+<li><code>time</code> - time formatted overall time</li>
+<li><code>last_name</code> - entrant's last_name</li>
+<li><code>first_name</code> - entrant`s first_name</li>
+<li><code>bib</code> - bib number</li>
+<li><code>city</code> - entrant's city</li>
+<li><code>state</code> - entrant's state</li>
+<li><code>gender</code> - entrant's gender (Hint: entrant.racer_gender)</li>
+<li><code>gender_place</code> - entrant's placing within gender</li>
+<li><code>group</code> - entrant's group_name (Hint: entrant.group_name)</li>
+<li><code>group_place</code> - entrant's placing within group</li>
+<li><code>swim</code> - time formatted swim time</li>
+<li><code>pace_100</code> - time formatted swim_pace_100</li>
+<li><code>t1</code> - time formatted t1_secs</li>
+<li><code>bike</code> - time formatted bike_secs</li>
+<li><code>mph</code> - formated bike_mph</li>
+<li><code>t2</code> - time formatted t2_secs</li>
+<li><code>run</code> - time formatted run_secs</li>
+<li><code>mmile</code> - time formatted run_mmile</li>
+<li><code>result_url</code> - url of this entrant's race result</li>
+<li><code>racer_url</code> - if entrant.racer.id is not nil</li>
+</ul>
+<p>When formatting time of the fields</p>
+<ul>
+<li>time formatting should be in either HH:MM:SS format for longer durations or MM:SS for shorter durations.</li>
+<li>floating point numbers like MPH should be to one decimal place</li>
+<li>you implemented helper methods in module 3 for the HTML pages to format the fields. They can be re-used here.</li>
+</ul>
+<p><strong>Hint</strong>: It is recommened that you implement this view as a partial so that it is re-usable when we go to render the resource collection in a follow-on step.</p>
+<p><strong>Hint</strong>: You should be able to use the following sources of information as reference</p>
+<ul>
+<li>your <code>app/views/races/show.html.erb</code> implementation form the previous assignment. The table constructed at the bottom of that web page will tell you where the data can be obtained from.</li>
+<li>the <a href="https://github.com/rails/jbuilder#jbuilder"><code>JBuilder Reference Docs</code></a></li>
+<li>the following sample partial snippet</li>
+</ul>
+<pre class="sourceCode ruby"><code class="sourceCode ruby"><span class="co"># .../_result.json.jbuilder</span>
+json.place result.overall_place
+json.time format_hours result.secs
+json.last_name result.last_name
+...
+json.mmile format_minutes result.run_mmile
+json.result_url api_race_result_url(result.race.id, result)
+<span class="kw">if</span> result.racer.id
+  json.racer_url api_racer_url(result.racer.id)
+<span class="kw">end</span></code></pre>
+<p>With the controller and view in place, you can demonstrate your new access to the race results using the rails console. In the example we start by locating a race in the past with results and a sample of one of its entrants. <strong>Note</strong> that we are using the named scope <code>past</code> implemented in the previous assignment to easily obtain a query returning races that have been held prior to today.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; race=<span class="dt">Race</span>.past.first
+&gt; race.name
+ =&gt; <span class="st">&quot;Upper Tract Iron&quot;</span> 
+&gt; race.id
+ =&gt; <span class="dt">BSON</span>::<span class="dt">ObjectId</span>(<span class="st">&#39;569a58b8e301d083c3000000&#39;</span>) 
+
+&gt; entrant=race.entrants.first
+&gt; entrant.first_name
+ =&gt; <span class="st">&quot;Tiesha&quot;</span> 
+&gt; entrant.last_name
+ =&gt; <span class="st">&quot;Beck&quot;</span> 
+&gt; entrant.id
+ =&gt; <span class="dt">BSON</span>::<span class="dt">ObjectId</span>(<span class="st">&#39;569a58bfe301d083c30007f2&#39;</span>) </code></pre>
+<p>We now issue the request for the entrant's results using the nested resource <code>races/:race_id/results/:id</code> and get back a full JSON document with our requested data.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; response=<span class="dt">TriResultsWS</span>.get(<span class="st">&quot;/api/races/</span><span class="ot">#{</span>race.id<span class="ot">}</span><span class="st">/results/</span><span class="ot">#{</span>entrant.id<span class="ot">}</span><span class="st">&quot;</span>, 
+                            <span class="st">:headers=</span>&gt;{<span class="st">&quot;Accept&quot;</span>=&gt;<span class="st">&quot;application/json&quot;</span>})
+&gt; response.response
+ =&gt; <span class="co">#&lt;Net::HTTPOK 200 OK  readbody=true&gt; </span>
+&gt; response.content_type
+ =&gt; <span class="st">&quot;application/json&quot;</span> 
+&gt; response.content_length
+ =&gt; <span class="dv">481</span> </code></pre>
+<p>The following contains the information for the winner.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; pp response.parsed_response
+{<span class="st">&quot;place&quot;</span>=&gt;<span class="dv">1</span>,
+ <span class="st">&quot;time&quot;</span>=&gt;<span class="st">&quot;10:17:16&quot;</span>,
+ <span class="st">&quot;last_name&quot;</span>=&gt;<span class="st">&quot;Beck&quot;</span>,
+ <span class="st">&quot;first_name&quot;</span>=&gt;<span class="st">&quot;Tiesha&quot;</span>,
+ <span class="st">&quot;bib&quot;</span>=&gt;<span class="dv">11</span>,
+ <span class="st">&quot;city&quot;</span>=&gt;<span class="st">&quot;Ampthill&quot;</span>,
+ <span class="st">&quot;state&quot;</span>=&gt;<span class="st">&quot;VA&quot;</span>,
+ <span class="st">&quot;gender&quot;</span>=&gt;<span class="st">&quot;F&quot;</span>,
+ <span class="st">&quot;gender_place&quot;</span>=&gt;<span class="dv">1</span>,
+ <span class="st">&quot;group&quot;</span>=&gt;<span class="st">&quot;30 to 39 (F)&quot;</span>,
+ <span class="st">&quot;group_place&quot;</span>=&gt;<span class="dv">1</span>,
+ <span class="st">&quot;swim&quot;</span>=&gt;<span class="st">&quot; 0:57:56&quot;</span>,
+ <span class="st">&quot;pace_100&quot;</span>=&gt;<span class="st">&quot;01:30&quot;</span>,
+ <span class="st">&quot;t1&quot;</span>=&gt;<span class="st">&quot;00:55&quot;</span>,
+ <span class="st">&quot;bike&quot;</span>=&gt;<span class="st">&quot; 6:35:17&quot;</span>,
+ <span class="st">&quot;mph&quot;</span>=&gt;<span class="fl">17.0</span>,
+ <span class="st">&quot;t2&quot;</span>=&gt;<span class="st">&quot;00:41&quot;</span>,
+ <span class="st">&quot;run&quot;</span>=&gt;<span class="st">&quot; 2:42:26&quot;</span>,
+ <span class="st">&quot;mmile&quot;</span>=&gt;<span class="st">&quot;00:06&quot;</span>,
+ <span class="st">&quot;result_url&quot;</span>=&gt;
+  <span class="st">&quot;http://localhost:3000/api/races/569a58b8e301d083c3000000/results/569a58bfe301d083c30007f2&quot;</span>,
+ <span class="st">&quot;racer_url&quot;</span>=&gt;<span class="st">&quot;http://localhost:3000/api/racers/569a58bde301d083c3000647&quot;</span>}</code></pre>
+<p>Next we pick a <code>Race</code> that is upcoming to show race results that have not yet occurred. Notice in this rendering we are chosing to show all fields (nil and non-nil). That will make it easier to identify the fields when we make updates.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; race=<span class="dt">Race</span>.upcoming.first
+&gt; entrant=race.entrants.first
+&gt; response=<span class="dt">TriResultsWS</span>.get(<span class="st">&quot;/api/races/</span><span class="ot">#{</span>race.id<span class="ot">}</span><span class="st">/results/</span><span class="ot">#{</span>entrant.id<span class="ot">}</span><span class="st">&quot;</span>, 
+                            <span class="st">:headers=</span>&gt;{<span class="st">&quot;Accept&quot;</span>=&gt;<span class="st">&quot;application/json&quot;</span>})
+&gt; pp response.parsed_response
+{<span class="st">&quot;place&quot;</span>=&gt;<span class="dv">nil</span>,
+ <span class="st">&quot;time&quot;</span>=&gt;<span class="st">&quot; 0:00:00&quot;</span>,
+ <span class="st">&quot;last_name&quot;</span>=&gt;<span class="st">&quot;Ruiz&quot;</span>,
+ <span class="st">&quot;first_name&quot;</span>=&gt;<span class="st">&quot;Lynwood&quot;</span>,
+ <span class="st">&quot;bib&quot;</span>=&gt;<span class="dv">1</span>,
+ <span class="st">&quot;city&quot;</span>=&gt;<span class="st">&quot;Pentagon&quot;</span>,
+ <span class="st">&quot;state&quot;</span>=&gt;<span class="st">&quot;DC&quot;</span>,
+ <span class="st">&quot;gender&quot;</span>=&gt;<span class="st">&quot;M&quot;</span>,
+ <span class="st">&quot;gender_place&quot;</span>=&gt;<span class="dv">nil</span>,
+ <span class="st">&quot;group&quot;</span>=&gt;<span class="st">&quot;20 to 29 (M)&quot;</span>,
+ <span class="st">&quot;group_place&quot;</span>=&gt;<span class="dv">nil</span>,
+ <span class="st">&quot;swim&quot;</span>=&gt;<span class="dv">nil</span>,
+ <span class="st">&quot;pace_100&quot;</span>=&gt;<span class="dv">nil</span>,
+ <span class="st">&quot;t1&quot;</span>=&gt;<span class="dv">nil</span>,
+ <span class="st">&quot;bike&quot;</span>=&gt;<span class="dv">nil</span>,
+ <span class="st">&quot;mph&quot;</span>=&gt;<span class="dv">nil</span>,
+ <span class="st">&quot;t2&quot;</span>=&gt;<span class="dv">nil</span>,
+ <span class="st">&quot;run&quot;</span>=&gt;<span class="dv">nil</span>,
+ <span class="st">&quot;mmile&quot;</span>=&gt;<span class="dv">nil</span>,
+ <span class="st">&quot;result_url&quot;</span>=&gt;
+  <span class="st">&quot;http://localhost:3000/api/races/569a58b8e301d083c300000c/results/569a58bfe301d083c30009d2&quot;</span>,
+ <span class="st">&quot;racer_url&quot;</span>=&gt;<span class="st">&quot;http://localhost:3000/api/racers/569a58bbe301d083c3000489&quot;</span>}</code></pre>
+<pre class="shell"><code>$ rspec spec/resources_spec.rb -e rq02</code></pre></li>
+<li><p>Implement a PATCH <code>/api/races/:race_id/results/:id</code> action to accept race result updates. This action must:</p>
+<ul>
+<li>be callable using <code>PATCH /api/races/:race_id/results/:id</code></li>
+<li>find the <code>Entrant</code> that is associated with the <code>:race_id</code> and <code>:entrant_id</code></li>
+<li><p>accept a payload that is keyed by <code>result</code> and has one or more of the following fields in it:</p>
+<ul>
+<li>swim</li>
+<li>t1</li>
+<li>bike</li>
+<li>t2</li>
+<li>run</li>
+</ul>
+These fields contain floating point numbers that are measuring in seconds the time taken to complete that particular leg of the race.</li>
+<li><p>return a <code>200/OK</code> response when a successful update is made.</p></li>
+</ul>
+<p><strong>Note</strong> how we are using PATCH here to knife into the resource and tweak a few fields. We are not replacing the entire document with what we are posting.</p>
+<p><strong>Hint</strong>: The previous assignment should have made the update easier but we are left to implement this ourselves as part of this assignment. The following is a reminder of how we can</p>
+<ul>
+<li>initialize the results entry with the race event</li>
+<li>update the time for the result</li>
+</ul>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">result=params[<span class="st">:result</span>]
+<span class="kw">if</span> result
+  <span class="kw">if</span> result[<span class="st">:swim</span>]
+    entrant.swim=entrant.race.race.swim
+    entrant.swim_secs = result[<span class="st">:swim</span>].to_f
+  <span class="kw">end</span>
+  <span class="kw">if</span> result[<span class="st">:t1</span>]
+    entrant.t1=entrant.race.race.t1
+    entrant.t1_secs = result[<span class="st">:t1</span>].to_f
+  <span class="kw">end</span>
+  ...
+  entrant.save</code></pre>
+<p>With your new PATCH action in place, you can demonstrate its functionality from the rails console. In the following example, we grab a random sample <code>Race</code> form the upcoming races and grab a random <code>Entrant</code> from that <code>Race</code>. The entrant starts out without any times and with equal <code>created_at</code> and <code>updated_at</code> timestamps.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; race=<span class="dt">Race</span>.upcoming.to_a.sample
+&gt; entrant=race.entrants.sample
+&gt; <span class="dt">Entrant</span>.where(id<span class="st">:entrant</span>.id).pluck(<span class="st">:created_at</span>, <span class="st">:updated_at</span>, <span class="st">:secs</span>)
+ =&gt; [[<span class="dv">2016</span><span class="bn">-01</span><span class="dv">-17</span> <span class="dv">00</span>:<span class="dv">00</span>:<span class="dv">00</span> <span class="dt">UTC</span>, <span class="dv">2016</span><span class="bn">-01</span><span class="dv">-17</span> <span class="dv">00</span>:<span class="dv">00</span>:<span class="dv">00</span> <span class="dt">UTC</span>, <span class="dv">nil</span>]] </code></pre>
+<p>The action is called five(5) times in total, with a value for each of the legs of the event. We can check the database in between calls to see the <code>secs</code> and <code>updated_at</code> changing.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; response=<span class="dt">TriResultsWS</span>.patch(<span class="st">&quot;/api/races/</span><span class="ot">#{</span>race.id<span class="ot">}</span><span class="st">/results/</span><span class="ot">#{</span>entrant.id<span class="ot">}</span><span class="st">&quot;</span>,
+              <span class="st">:body=</span>&gt;{<span class="st">:result=</span>&gt;{<span class="st">:swim=</span>&gt;<span class="dv">15</span>.minute}}.to_json, 
+              <span class="st">:headers=</span>&gt;{<span class="st">&quot;Content-Type&quot;</span>=&gt;<span class="st">&quot;application/json&quot;</span>,<span class="st">&quot;Accept&quot;</span>=&gt;<span class="st">&quot;application/json&quot;</span>})
+&gt; <span class="dt">Entrant</span>.where(id<span class="st">:entrant</span>.id).pluck(<span class="st">:created_at</span>, <span class="st">:updated_at</span>, <span class="st">:secs</span>)
+ =&gt; [[<span class="dv">2016</span><span class="bn">-01</span><span class="dv">-17</span> <span class="dv">00</span>:<span class="dv">00</span>:<span class="dv">00</span> <span class="dt">UTC</span>, <span class="dv">2016</span><span class="bn">-01</span><span class="dv">-24</span> <span class="dv">09</span>:<span class="bn">05</span>:<span class="dv">52</span> <span class="dt">UTC</span>, <span class="fl">900.0</span>]] 
+...
+<span class="st">:body=</span>&gt;{<span class="st">:result=</span>&gt;{<span class="st">:t1=</span>&gt;<span class="dv">1</span>.minute}}.to_json
+<span class="st">:body=</span>&gt;{<span class="st">:result=</span>&gt;{<span class="st">:bike=</span>&gt;<span class="dv">40</span>.minutes}}.to_json
+<span class="st">:body=</span>&gt;{<span class="st">:result=</span>&gt;{<span class="st">:t2=</span>&gt;<span class="dv">40</span>.seconds}}.to_json
+<span class="st">:body=</span>&gt;{<span class="st">:result=</span>&gt;{<span class="st">:run=</span>&gt;<span class="dv">25</span>.minutes}}.to_json
+&gt; <span class="dt">Entrant</span>.where(id<span class="st">:entrant</span>.id).pluck(<span class="st">:created_at</span>, <span class="st">:updated_at</span>, <span class="st">:secs</span>)
+ =&gt; [[<span class="dv">2016</span><span class="bn">-01</span><span class="dv">-17</span> <span class="dv">00</span>:<span class="dv">00</span>:<span class="dv">00</span> <span class="dt">UTC</span>, <span class="dv">2016</span><span class="bn">-01</span><span class="dv">-24</span> <span class="dv">09</span>:<span class="dv">08</span>:<span class="dv">45</span> <span class="dt">UTC</span>, <span class="fl">4900.0</span>]] </code></pre>
+<p><strong>Hint</strong>: If you are having difficulty with passing this test due to 'CSRF token authenticty' types of errors, ensure all your API controllers are implementing the <code>protect_from_forgery</code> option, as shown with the <code>RacesController</code>.</p>
+<p>When we retrieve the results for the <code>Entrant</code> after posting the event times, we see that all times have been recorded and the overall time has been updated. The sum of the leg times should equal the entrant time.</p>
+<pre><code>&gt; response=TriResultsWS.get(&quot;/api/races/#{race.id}/results/#{entrant.id}&quot;,
+                            :headers=&gt;{&quot;Accept&quot;=&gt;&quot;application/json&quot;})
+&gt; pp response.parsed_response
+{&quot;place&quot;=&gt;nil,
+ &quot;time&quot;=&gt;&quot; 1:21:40&quot;,
+...
+ &quot;swim&quot;=&gt;&quot; 0:15:00&quot;,
+ &quot;pace_100&quot;=&gt;&quot;02:00&quot;,
+ &quot;t1&quot;=&gt;&quot;01:00&quot;,
+ &quot;bike&quot;=&gt;&quot; 0:40:00&quot;,
+ &quot;mph&quot;=&gt;18.0,
+ &quot;t2&quot;=&gt;&quot;00:40&quot;,
+ &quot;run&quot;=&gt;&quot; 0:25:00&quot;,
+ &quot;mmile&quot;=&gt;&quot;00:08&quot;,
+...</code></pre>
+<pre class="shell"><code>$ rspec spec/resources_spec.rb -e rq03</code></pre></li>
+<li><p>Update the controller method that is implementing the action for GET <code>/api/races/:race_id/results</code> so that it finds the specified <code>Race</code> and its entrants. This action must:</p>
+<ul>
+<li>obtain the <code>:race_id</code> provided in the URI</li>
+<li>find the <code>Race</code> in the database</li>
+<li>make the collection entrants for the <code>Race</code> available to the view</li>
+</ul>
+<p><strong>Hint</strong>: The following is a snippet of code that you can likely drop into your existing controller method implementing the action.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby"><span class="ot">@race</span>=<span class="dt">Race</span>.find(params[<span class="st">:race_id</span>])
+<span class="ot">@entrants</span>=<span class="ot">@race</span>.entrants</code></pre>
+<p>What you are now adding should implement the stub you have in place from the URI section. you added in the initial URI section of this assignment.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">  <span class="kw">if</span> !request.accept || request.accept == <span class="st">&quot;*/*&quot;</span>
+    render plain: <span class="st">&quot;/api/races/</span><span class="ot">#{</span>params[<span class="st">:race_id</span>]<span class="ot">}</span><span class="st">/results&quot;</span>
+  <span class="kw">else</span> 
+    <span class="co">#implementation here</span>
+  <span class="kw">end</span></code></pre>
+<p>At the completion of this step you should be either be:</p>
+<ul>
+<li>manually calling a view similar to how the <a href="https://github.com/jhu-ep-coursera/fullstack-course3-module4-wsmovies/blob/master/app/controllers/hello_controller.rb"><code>HelloController#say method</code></a> worked in the class examples.</li>
+<li>using automatic routing the way the <code>HelloController#sayhello</code> worked in the class examples.</li>
+</ul>
+<p>With that in place, you likely are getting an error stating a 404/NOT FOUND on the client-side and a template or partial not found on the server-side.</p>
+<p>There is no test for this step.</p></li>
+<li><p>Implement an <code>XXX.json.jbuilder</code> script to act as the view the above controller is trying to render. We will use a custom view so that we can better control what goes into the data marshalled back to the client. It is recommened that the individual rows of this collection view be implemented with the partial you recently implemented in a previous step. The document returned to the client must have:</p>
+<ul>
+<li>an array element for each <code>Entrant</code> result in the collection</li>
+<li>the same <code>Entrant</code> result properties defined in the previous step in this section.</li>
+</ul>
+<p><strong>Hint</strong>: The following snippet shows how to form the collection loop and invoke the partial. Dependending on what you called your partial and whether you even used a partial -- yours may look different.</p>
+<ul>
+<li>the <code>ignore_nil!</code> was added to have nil fields not included in the rendered response</li>
+<li>the <code>json.array!</code> iterates over the collection provided and passed the element into the body using the <code>element</code> variable.</li>
+<li>the <code>json.partial!</code> renders the <code>result</code> partial, passing in <code>entrant</code> to be used as the <code>result</code> veriable in that partial.</li>
+</ul>
+<pre class="sourceCode ruby"><code class="sourceCode ruby"><span class="co"># app/views/api/results/index.json.jbuilder</span>
+json.ignore_nil!   <span class="co">#don&#39;t marshal nil values</span>
+json.array!(<span class="ot">@entrants</span>) <span class="kw">do</span> |entrant|
+  json.partial! <span class="st">&quot;result&quot;</span>, <span class="st">:locals=</span>&gt;{ <span class="st">:result=</span>&gt;entrant }
+<span class="kw">end</span></code></pre>
+<p>With your new controller and view in place for race results, you should be able to demonstrate getting race results using the rails console. In this example we start off by locating a race that is in the past. The following query makes use of a named scope <code>past</code> implemented in the previous assignment.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; race=<span class="dt">Race</span>.past.first
+&gt; race.name
+ =&gt; <span class="st">&quot;Upper Tract Iron&quot;</span> 
+&gt; race.date
+ =&gt; <span class="dt">Mon</span>, <span class="dv">20</span> <span class="dt">Oct</span> <span class="dv">2014</span> </code></pre>
+<p>We start off by issuing the request for the <code>Race</code>. This was implemented in a previous step of this assignment. This shows we are getting back the <code>Race</code> we expect.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">response=<span class="dt">TriResultsWS</span>.get(<span class="st">&quot;/api/races/</span><span class="ot">#{</span>race.id<span class="ot">}</span><span class="st">&quot;</span>,
+                          <span class="st">:headers=</span>&gt;{<span class="st">&quot;Accept&quot;</span>=&gt;<span class="st">&quot;application/json&quot;</span>})
+&gt; response.response
+ =&gt; <span class="co">#&lt;Net::HTTPOK 200 OK  readbody=true&gt; </span>
+&gt; response.content_type
+ =&gt; <span class="st">&quot;application/json&quot;</span> 
+&gt; response.parsed_response
+ =&gt; {<span class="st">&quot;name&quot;</span>=&gt;<span class="st">&quot;Upper Tract Iron&quot;</span>, <span class="st">&quot;date&quot;</span>=&gt;<span class="st">&quot;2014-10-20&quot;</span>}               </code></pre>
+<p>We now issue the request for the results using the nested collection resource below the races/:race_id resource and get back a full JSON document with our requested data. You may want to look at this data using a browser to be able see the information better.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; response=<span class="dt">TriResultsWS</span>.get(<span class="st">&quot;/api/races/</span><span class="ot">#{</span>race.id<span class="ot">}</span><span class="st">/results&quot;</span>,
+                            <span class="st">:headers=</span>&gt;{<span class="st">&quot;Accept&quot;</span>=&gt;<span class="st">&quot;application/json&quot;</span>})
+&gt; response.response
+ =&gt; <span class="co">#&lt;Net::HTTPOK 200 OK  readbody=true&gt; </span>
+&gt; response.content_type
+ =&gt; <span class="st">&quot;application/json&quot;</span> 
+&gt; response.content_length
+ =&gt; <span class="dv">9681</span> 
+&gt; response.parsed_response.count
+ =&gt; <span class="dv">20</span> </code></pre>
+<p>The following is a sample of the response showing the first place winner.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; pp response.parsed_response.first
+{<span class="st">&quot;place&quot;</span>=&gt;<span class="dv">1</span>,
+ <span class="st">&quot;time&quot;</span>=&gt;<span class="st">&quot;10:17:16&quot;</span>,
+ <span class="st">&quot;last_name&quot;</span>=&gt;<span class="st">&quot;Beck&quot;</span>,
+ <span class="st">&quot;first_name&quot;</span>=&gt;<span class="st">&quot;Tiesha&quot;</span>,
+ <span class="st">&quot;bib&quot;</span>=&gt;<span class="dv">11</span>,
+ <span class="st">&quot;city&quot;</span>=&gt;<span class="st">&quot;Ampthill&quot;</span>,
+ <span class="st">&quot;state&quot;</span>=&gt;<span class="st">&quot;VA&quot;</span>,
+ <span class="st">&quot;gender&quot;</span>=&gt;<span class="st">&quot;F&quot;</span>,
+ <span class="st">&quot;gender_place&quot;</span>=&gt;<span class="dv">1</span>,
+ <span class="st">&quot;group&quot;</span>=&gt;<span class="st">&quot;30 to 39 (F)&quot;</span>,
+ <span class="st">&quot;group_place&quot;</span>=&gt;<span class="dv">1</span>,
+ <span class="st">&quot;swim&quot;</span>=&gt;<span class="st">&quot; 0:57:56&quot;</span>,
+ <span class="st">&quot;pace_100&quot;</span>=&gt;<span class="st">&quot;01:30&quot;</span>,
+ <span class="st">&quot;t1&quot;</span>=&gt;<span class="st">&quot;00:55&quot;</span>,
+ <span class="st">&quot;bike&quot;</span>=&gt;<span class="st">&quot; 6:35:17&quot;</span>,
+ <span class="st">&quot;mph&quot;</span>=&gt;<span class="fl">17.0</span>,
+ <span class="st">&quot;t2&quot;</span>=&gt;<span class="st">&quot;00:41&quot;</span>,
+ <span class="st">&quot;run&quot;</span>=&gt;<span class="st">&quot; 2:42:26&quot;</span>,
+ <span class="st">&quot;mmile&quot;</span>=&gt;<span class="st">&quot;00:06&quot;</span>,
+ <span class="st">&quot;racer_url&quot;</span>=&gt;<span class="st">&quot;http://localhost:3000/api/racers/569a58bde301d083c3000647.json&quot;</span>}</code></pre>
+<p>Next we pick a <code>Race</code> that is upcoming to show race results that have not yet occurred.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; race=<span class="dt">Race</span>.upcoming.first
+&gt; response=<span class="dt">TriResultsWS</span>.get(<span class="st">&quot;/api/races/</span><span class="ot">#{</span>race.id<span class="ot">}</span><span class="st">/results&quot;</span>,<span class="st">:headers=</span>&gt;{<span class="st">&quot;Accept&quot;</span>=&gt;<span class="st">&quot;application/json&quot;</span>})
+&gt; pp response.parsed_response.first
+{<span class="st">&quot;time&quot;</span>=&gt;<span class="st">&quot; 0:00:00&quot;</span>,
+ <span class="st">&quot;last_name&quot;</span>=&gt;<span class="st">&quot;Ruiz&quot;</span>,
+ <span class="st">&quot;first_name&quot;</span>=&gt;<span class="st">&quot;Lynwood&quot;</span>,
+ <span class="st">&quot;bib&quot;</span>=&gt;<span class="dv">1</span>,
+ <span class="st">&quot;city&quot;</span>=&gt;<span class="st">&quot;Pentagon&quot;</span>,
+ <span class="st">&quot;state&quot;</span>=&gt;<span class="st">&quot;DC&quot;</span>,
+ <span class="st">&quot;gender&quot;</span>=&gt;<span class="st">&quot;M&quot;</span>,
+ <span class="st">&quot;group&quot;</span>=&gt;<span class="st">&quot;20 to 29 (M)&quot;</span>,
+ <span class="st">&quot;racer_url&quot;</span>=&gt;<span class="st">&quot;http://localhost:3000/api/racers/569a58bbe301d083c3000489.json&quot;</span>}</code></pre>
+<pre class="shell"><code>$ rspec spec/resources_spec.rb -e rq05</code></pre></li>
+</ol>
+<h3 id="headers-and-caching">Headers and Caching</h3>
+<p>In this section we are going to repeat some of the earlier actions except with some conditional behavior based on caching headers.</p>
+<ol style="list-style-type: decimal">
+<li><p>Update the <code>results</code> controller so that when the collection of race results is returned; a <code>Last-Modified</code> header is returned with it. This value must:</p>
+<ul>
+<li>represent the newest <code>updated_at</code> property of all <code>Entrant</code> documents associated with the Race.</li>
+</ul>
+<p><strong>Hint</strong>: <code>race.entrants.max(:updated_at)</code> <strong>Hint</strong>: Use <a href="http://api.rubyonrails.org/classes/ActionController/ConditionalGet.html#method-i-fresh_when"><code>fresh_when</code></a> to set the <code>Last-Modified</code> value as the newsest <code>updated_at</code> timestamp for all the entrants within the race.</p>
+<p>With your <code>Last-Modified</code> solution in place, you can demonstrate their presence using the rails console.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; response=<span class="dt">TriResultsWS</span>.get(<span class="st">&quot;/api/races/</span><span class="ot">#{</span>race.id<span class="ot">}</span><span class="st">/results&quot;</span>, 
+                            <span class="st">:headers=</span>&gt;{<span class="st">&quot;Accept&quot;</span>=&gt;<span class="st">&quot;application/json&quot;</span>})
+&gt; response.response
+ =&gt; <span class="co">#&lt;Net::HTTPOK 200 OK  readbody=true&gt; </span>
+&gt; response.header[<span class="st">&quot;Last-Modified&quot;</span>] 
+ =&gt; <span class="st">&quot;Mon, 18 Jan 2016 09:23:07 GMT&quot;</span></code></pre>
+<pre class="shell"><code>$ rspec spec/caching_spec.rb -e rq01</code></pre></li>
+<li><p>Update the previous action to only return an update, if the client does not already have the current version of the race results. This method must:</p>
+<ul>
+<li>locate the <code>Race</code> in the database</li>
+<li>locate the newest <code>updated_at</code> value for each of its <code>Entrants</code></li>
+<li>look for and process the <code>If-Modified-Since</code> header</li>
+<li>compare the timestamp of the <code>If-Modified-Since</code> header with the newest entrant timestamp and short circuit the call (returning a 304/Not-Modified) if the client already has the lastest copy of the data.</li>
+</ul>
+<p><strong>Hint</strong>: Replace <code>fresh_when</code> with a conditional block using <a href="http://api.rubyonrails.org/classes/ActionController/ConditionalGet.html#method-i-stale-3F"><code>stale?</code></a>.</p>
+<p>With your new conditional logic in place, you can demonstrate this using the rails console. In the example below, we seed the scenario with an initial request of the full race results. A <code>Last-Modified</code> is returned, which should represent the last time updated for the newest update across all <code>Entrants</code> in the Race. We can verify that as well.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; response=<span class="dt">TriResultsWS</span>.get(<span class="st">&quot;/api/races/</span><span class="ot">#{</span>race.id<span class="ot">}</span><span class="st">/results&quot;</span>, 
+                            <span class="st">:headers=</span>&gt;{<span class="st">&quot;Accept&quot;</span>=&gt;<span class="st">&quot;application/json&quot;</span>})
+&gt; response.response
+ =&gt; <span class="co">#&lt;Net::HTTPOK 200 OK  readbody=true&gt; </span>
+&gt; last_modified=response.header[<span class="st">&quot;Last-Modified&quot;</span>]
+ =&gt; <span class="st">&quot;Mon, 18 Jan 2016 09:23:07 GMT&quot;</span>
+&gt; response.content_length
+ =&gt; <span class="dv">6420</span> </code></pre>
+<p>Request a copy of the <code>Race</code> results using a last-modified that is up to date with the database's current state.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; last_modified
+  =&gt; <span class="st">&quot;Mon, 18 Jan 2016 09:34:09 GMT&quot;</span>
+&gt; response=<span class="dt">TriResultsWS</span>.get(<span class="st">&quot;/api/races/</span><span class="ot">#{</span>race.id<span class="ot">}</span><span class="st">/results&quot;</span>, 
+           <span class="st">:headers=</span>&gt;{<span class="st">&quot;Accept&quot;</span>=&gt;<span class="st">&quot;application/json&quot;</span>,
+                      <span class="st">&quot;If-Modified-Since&quot;</span>=&gt;last_modified})
+&gt; response.response
+ =&gt; <span class="co">#&lt;Net::HTTPNotModified 304 Not Modified  readbody=true&gt; </span>
+&gt; response.header[<span class="st">&quot;Last-Modified&quot;</span>]
+ =&gt; <span class="st">&quot;Mon, 18 Jan 2016 09:34:09 GMT&quot;</span> </code></pre>
+<pre class="shell"><code>$ rspec spec/caching_spec.rb -e rq02</code></pre></li>
+<li><p>Issue an update to one of the entrant's results and re-issue the GET from the previous step.</p>
+<p>In the following example we:</p>
+<ul>
+<li>locate an entrant for a race</li>
+<li>extract their URL</li>
+<li>issue a result PATCH to that URL</li>
+</ul>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; response=<span class="dt">TriResultsWS</span>.get(<span class="st">&quot;/api/races/</span><span class="ot">#{</span>race.id<span class="ot">}</span><span class="st">/results&quot;</span>,
+                            <span class="st">:headers=</span>&gt;{<span class="st">&quot;Accept&quot;</span>=&gt;<span class="st">&quot;application/json&quot;</span>})
+&gt; result_url=response.parsed_response.first[<span class="st">&quot;result_url&quot;</span>]
+ =&gt; <span class="st">&quot;http://localhost:3000/api/races/569a58b8e301d083c300008a/results/569a58c4e301d083c3002412&quot;</span>
+&gt; response=<span class="dt">HTTParty</span>.patch(result_url,<span class="st">:body=</span>&gt;{<span class="st">:result=</span>&gt;{<span class="st">:swim=</span>&gt;<span class="dv">15</span>.minute}}.to_json,
+          <span class="st">:headers=</span>&gt;{<span class="st">&quot;Content-Type&quot;</span>=&gt;<span class="st">&quot;application/json&quot;</span>,<span class="st">&quot;Accept&quot;</span>=&gt;<span class="st">&quot;application/json&quot;</span>})</code></pre>
+<p><strong>Hint</strong>: If you are having difficulty with passing this test due to 'CSRF token authenticty' types of errors, ensure all your API controllers are implementing the <code>protect_from_forgery</code> option, as shown with the <code>RacesController</code>.</p>
+<p>When we obtain the newest <code>updated_at</code> timestamp in the database for the race we notice that the value is now newer than the last_modified we had been using.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; last_modified
+ =&gt; <span class="st">&quot;Sun, 24 Jan 2016 09:08:45 GMT&quot;</span> 
+&gt; race.entrants.max(<span class="st">:updated_at</span>)
+ =&gt; <span class="dv">2016</span><span class="bn">-01</span><span class="dv">-24</span> <span class="dv">09</span>:<span class="dv">50</span>:<span class="bn">02</span> <span class="dt">UTC</span> </code></pre>
+<p>When we re-issue the GET passing the older <code>Last-Modified</code> timestamp in the <code>If-Modified-Since</code> header, we should get a <code>200/OK</code> with a full updated. This is because our latest updated caused the status of this resource to be newer than the client previously held.</p>
+<pre class="sourceCode ruby"><code class="sourceCode ruby">&gt; last_modified
+ =&gt; <span class="st">&quot;Mon, 18 Jan 2016 09:34:09 GMT&quot;</span>
+&gt; response=<span class="dt">TriResultsWS</span>.get(<span class="st">&quot;/api/races/</span><span class="ot">#{</span>race.id<span class="ot">}</span><span class="st">/results&quot;</span>, 
+           <span class="st">:headers=</span>&gt;{<span class="st">&quot;Accept&quot;</span>=&gt;<span class="st">&quot;application/json&quot;</span>,
+                      <span class="st">&quot;If-Modified-Since&quot;</span>=&gt;last_modified})
+&gt; response.response
+ =&gt; <span class="co">#&lt;Net::HTTPOK 200 OK  readbody=true&gt; </span>
+&gt; response.content_type
+ =&gt; <span class="st">&quot;application/json&quot;</span> 
+&gt; response.header[<span class="st">&quot;Last-Modified&quot;</span>]
+ =&gt; <span class="st">&quot;Sun, 24 Jan 2016 09:50:02 GMT&quot;</span> </code></pre>
+<pre class="shell"><code>$ rspec spec/caching_spec.rb -e rq03</code></pre></li>
+</ol>
+<h2 id="self-gradingfeedback">Self Grading/Feedback</h2>
+<p>Some unit tests have been provided in the bootstrap files and provide examples of tests the grader will be evaluating for when you submit your solution. They must be run from the project root directory.</p>
+<pre class="shell"><code>$ rspec (file)
+...
+(N) examples, 0 failures</code></pre>
+<p>You can run as many specific tests you wish be adding <code>-e rq## -e rq##</code></p>
+<pre class="shell"><code>$ rspec (file) -e rq01 -e rq02</code></pre>
+<h2 id="submission">Submission</h2>
+<p>Submit an .zip archive (other archive forms not currently supported) with your solution root directory as the top-level (e.g., your Gemfile and sibling files must be in the root of the archive and <em>not</em> in a sub-folder. The grader will replace the spec files with fresh copies and will perform a test with different query terms.</p>
+<pre class="text"><code>|-- app
+|   |-- assets
+|   |-- controllers
+|   |-- helpers
+|   |-- mailers
+|   |-- models
+|   `-- views
+|-- bin
+|-- config
+|-- config.ru
+|-- db
+|-- Gemfile
+|-- Gemfile.lock
+|-- lib
+|-- log
+|-- public
+|-- Rakefile
+|-- README.rdoc
+|-- test
+`-- vendor</code></pre>
+<h4 id="last-updated-2016-02-06">Last Updated: 2016-02-06</h4>
