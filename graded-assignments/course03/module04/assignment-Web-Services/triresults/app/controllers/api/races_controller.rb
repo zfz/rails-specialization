@@ -1,8 +1,9 @@
 module Api
   class RacesController < ApplicationController 
     def index
+      puts params
       if !request.accept || request.accept == "*/*"
-        render plain: "/api/races"
+        render plain: "/api/races, offset=[#{params[:offset]}], limit=[#{params[:limit]}]"
       else
       #real implementation ...
       end
@@ -18,7 +19,7 @@ module Api
 
     def create
       if !request.accept || request.accept == "*/*" 
-        render plain: :nothing, status: :ok
+        render plain: "#{params[:race][:name]}", status: :ok
       else
       #real implementation
       end
