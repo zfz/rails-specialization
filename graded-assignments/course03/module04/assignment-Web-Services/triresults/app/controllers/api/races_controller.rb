@@ -2,7 +2,20 @@ module Api
   class RacesController < ApplicationController 
 
     rescue_from Mongoid::Errors::DocumentNotFound do |exception|
-      render plain: "woops: cannot find race[#{params[:id]}]", status: :not_found
+      @msg = "woops: cannot find race[#{params[:id]}]"
+      if !request.accept || request.accept == "*/*"
+        render plain: @msg, status: :not_found
+      else
+        render action: :error, status: :not_found, content_type: "#{request.accept}"
+        #respond_to do |format|
+        #  format.json { render "error", status: :not_found, content_type: "#{request.accept}" }
+        #  format.xml  { render "error", status: :not_found, content_type: "#{request.accept}" }
+        #end
+      end
+    end
+
+    rescue_from ActionView::MissingTemplate do |exception|
+      render plain: "woops: we do not support that content-type[#{request.accept}]", :status => 415
     end
 
     def index
@@ -19,7 +32,7 @@ module Api
       else
       #real implementation ...
         @race = Race.find(params[:id])
-        render json: @race
+        render "race", content_type: "#{request.accept}"
       end
     end
 
