@@ -1,5 +1,10 @@
 module Api
   class RacesController < ApplicationController 
+
+    rescue_from Mongoid::Errors::DocumentNotFound do |exception|
+      render plain: "woops: cannot find race[#{params[:id]}]", status: :not_found
+    end
+
     def index
       if !request.accept || request.accept == "*/*"
         render plain: "/api/races, offset=[#{params[:offset]}], limit=[#{params[:limit]}]"
