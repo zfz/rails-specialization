@@ -7,7 +7,11 @@ module Api
       #real implementation ...
         @race = Race.find(params[:race_id])
         @entrants = @race.entrants
-        render :index
+        #fresh_when last_modified: @entrants.max(:updated_at)
+        #render :index
+        if stale? last_modified: @entrants.max(:updated_at)
+          render :index
+        end
       end
     end
 
